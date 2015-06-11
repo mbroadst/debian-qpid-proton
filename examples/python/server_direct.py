@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 from proton import generate_uuid, Message
 from proton.handlers import MessagingHandler
 from proton.reactor import Container
@@ -30,7 +29,7 @@ class Server(MessagingHandler):
         self.senders = {}
 
     def on_start(self, event):
-        print("Listening on", self.url)
+        print "Listening on", self.url
         self.container = event.container
         self.acceptor = event.container.listen(self.url)
 
@@ -48,13 +47,11 @@ class Server(MessagingHandler):
             event.link.target.address = event.link.remote_target.address
 
     def on_message(self, event):
-        print("Received", event.message)
+        print "Received", event.message 
         sender = self.senders.get(event.message.reply_to)
-        if not sender:
-            print("No link for reply")
-            return
-        sender.send(Message(address=event.message.reply_to, body=event.message.body.upper(),
-                            correlation_id=event.message.correlation_id))
+        if sender:
+            sender.send(Message(address=event.message.reply_to, body=event.message.body.upper(),
+                                correlation_id=event.message.correlation_id))
 
 try:
     Container(Server("0.0.0.0:8888")).run()

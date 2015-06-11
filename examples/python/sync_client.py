@@ -23,7 +23,6 @@ Demonstrates the client side of the synchronous request-response pattern
 (also known as RPC or Remote Procecure Call) using proton.
 
 """
-from __future__ import print_function
 
 import optparse
 from proton import Message, Url, ConnectionException, Timeout
@@ -49,7 +48,7 @@ try:
                "And the mome raths outgrabe."]
     for request in REQUESTS:
         response = client.call(Message(body=request))
-        print("%s => %s" % (request, response.body))
+        print "%s => %s" % (request, response.body)
 finally:
     client.connection.close()
 

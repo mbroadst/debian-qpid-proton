@@ -21,7 +21,8 @@
 package org.apache.qpid.proton;
 
 import java.io.IOException;
-
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.apache.qpid.proton.amqp.messaging.ApplicationProperties;
 import org.apache.qpid.proton.amqp.messaging.DeliveryAnnotations;
 import org.apache.qpid.proton.amqp.messaging.Footer;
@@ -32,16 +33,14 @@ import org.apache.qpid.proton.amqp.messaging.Section;
 import org.apache.qpid.proton.codec.Codec;
 import org.apache.qpid.proton.codec.Data;
 import org.apache.qpid.proton.driver.Driver;
+import org.apache.qpid.proton.engine.Engine;
 import org.apache.qpid.proton.engine.Collector;
 import org.apache.qpid.proton.engine.Connection;
-import org.apache.qpid.proton.engine.Engine;
-import org.apache.qpid.proton.engine.Handler;
 import org.apache.qpid.proton.engine.SslDomain;
 import org.apache.qpid.proton.engine.SslPeerDetails;
 import org.apache.qpid.proton.engine.Transport;
 import org.apache.qpid.proton.message.Message;
 import org.apache.qpid.proton.messenger.Messenger;
-import org.apache.qpid.proton.reactor.Reactor;
 
 public final class Proton
 {
@@ -111,17 +110,4 @@ public final class Proton
         return Driver.Factory.create();
     }
 
-    public static Reactor reactor() throws IOException
-    {
-        return Reactor.Factory.create();
-    }
-
-    public static Reactor reactor(Handler... handlers) throws IOException
-    {
-        Reactor reactor = Reactor.Factory.create();
-        for (Handler handler : handlers) {
-            reactor.getHandler().add(handler);
-        }
-        return reactor;
-    }
 }

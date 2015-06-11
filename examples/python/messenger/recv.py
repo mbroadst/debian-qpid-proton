@@ -17,7 +17,6 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from __future__ import print_function
 import sys, optparse
 from proton import *
 
@@ -47,9 +46,9 @@ while True:
   while mng.incoming:
     try:
       mng.get(msg)
-    except Exception as e:
-      print(e)
+    except Exception, e:
+      print e
     else:
-      print(msg.address, msg.subject or "(no subject)", msg.properties, msg.body)
+      print msg.address, msg.subject or "(no subject)", msg.properties, msg.body
 
 mng.stop()

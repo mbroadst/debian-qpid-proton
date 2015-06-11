@@ -17,21 +17,13 @@
 # under the License.
 #
 
-import sys
 import subprocess
 import time
 import unittest
 
-if sys.version_info[0] == 2:
-    _unicode_prefix = 'u'
-else:
-    _unicode_prefix = ''
-
-
 class ExamplesTest(unittest.TestCase):
     def test_helloworld(self, example="helloworld.py"):
-        p = subprocess.Popen([example], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        p = subprocess.Popen([example], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         p.wait()
         output = [l.strip() for l in p.stdout]
         self.assertEqual(output, ['Hello World!'])
@@ -49,23 +41,19 @@ class ExamplesTest(unittest.TestCase):
         self.test_helloworld('helloworld_direct_tornado.py')
 
     def test_simple_send_recv(self, recv='simple_recv.py', send='simple_send.py'):
-        r = subprocess.Popen([recv], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
-        s = subprocess.Popen([send], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        r = subprocess.Popen([recv], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+        s = subprocess.Popen([send], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         s.wait()
         r.wait()
         actual = [l.strip() for l in r.stdout]
-        expected = ["{'sequence': %i}" % (i+1) for i in range(100)]
+        expected = ["{'sequence': %iL}" % (i+1) for i in range(100)]
         self.assertEqual(actual, expected)
 
     def test_client_server(self, client=['client.py'], server=['server.py'], sleep=0):
-        s = subprocess.Popen(server, stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        s = subprocess.Popen(server, stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         if sleep:
             time.sleep(sleep)
-        c = subprocess.Popen(client, stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        c = subprocess.Popen(client, stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         c.wait()
         s.terminate()
         actual = [l.strip() for l in c.stdout]
@@ -96,18 +84,14 @@ class ExamplesTest(unittest.TestCase):
         # setup databases
         subprocess.check_call(['db_ctrl.py', 'init', './src_db'])
         subprocess.check_call(['db_ctrl.py', 'init', './dst_db'])
-        fill = subprocess.Popen(['db_ctrl.py', 'insert', './src_db'],
-                                stdin=subprocess.PIPE, stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                                universal_newlines=True)
+        fill = subprocess.Popen(['db_ctrl.py', 'insert', './src_db'], stdin=subprocess.PIPE, stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         for i in range(100):
             fill.stdin.write("Message-%i\n" % (i+1))
         fill.stdin.close()
         fill.wait()
         # run send and recv
-        r = subprocess.Popen(['db_recv.py', '-m', '100'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
-        s = subprocess.Popen(['db_send.py', '-m', '100'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        r = subprocess.Popen(['db_recv.py', '-m', '100'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
+        s = subprocess.Popen(['db_send.py', '-m', '100'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         s.wait()
         r.wait()
         # verify output of receive
@@ -115,10 +99,9 @@ class ExamplesTest(unittest.TestCase):
         expected = ["inserted message %i" % (i+1) for i in range(100)]
         self.assertEqual(actual, expected)
         # verify state of databases
-        v = subprocess.Popen(['db_ctrl.py', 'list', './dst_db'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        v = subprocess.Popen(['db_ctrl.py', 'list', './dst_db'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         v.wait()
-        expected = ["(%i, %s'Message-%i')" % ((i+1), _unicode_prefix, (i+1)) for i in range(100)]
+        expected = ["(%i, u'Message-%i')" % ((i+1), (i+1)) for i in range(100)]
         actual = [l.strip() for l in v.stdout]
         self.assertEqual(actual, expected)
 
@@ -127,25 +110,21 @@ class ExamplesTest(unittest.TestCase):
 
     def test_simple_send_direct_recv(self):
         self.maxDiff = None
-        r = subprocess.Popen(['direct_recv.py', '-a', 'localhost:8888'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        r = subprocess.Popen(['direct_recv.py'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         time.sleep(0.5)
-        s = subprocess.Popen(['simple_send.py', '-a', 'localhost:8888'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        s = subprocess.Popen(['simple_send.py', '-a', 'localhost:8888'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         s.wait()
         r.wait()
         actual = [l.strip() for l in r.stdout]
-        expected = ["{'sequence': %i}" % (i+1) for i in range(100)]
+        expected = ["{'sequence': %iL}" % (i+1) for i in range(100)]
         self.assertEqual(actual, expected)
 
     def test_direct_send_simple_recv(self):
-        s = subprocess.Popen(['direct_send.py', '-a', 'localhost:8888'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        s = subprocess.Popen(['direct_send.py'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         time.sleep(0.5)
-        r = subprocess.Popen(['simple_recv.py', '-a', 'localhost:8888'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE,
-                             universal_newlines=True)
+        r = subprocess.Popen(['simple_recv.py', '-a', 'localhost:8888'], stderr=subprocess.STDOUT, stdout=subprocess.PIPE)
         r.wait()
-        s.wait()
         actual = [l.strip() for l in r.stdout]
-        expected = ["{'sequence': %i}" % (i+1) for i in range(100)]
+        expected = ["{'sequence': %iL}" % (i+1) for i in range(100)]
+        s.terminate()
         self.assertEqual(actual, expected)

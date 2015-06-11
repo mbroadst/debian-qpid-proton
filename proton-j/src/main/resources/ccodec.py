@@ -23,7 +23,7 @@ from org.apache.qpid.proton.codec.Data import DataType
 
 from java.util import UUID as JUUID, Date as JDate
 from java.nio import ByteBuffer
-from compat import array, zeros
+from jarray import array, zeros
 
 # from proton/codec.h
 PN_NULL = 1
@@ -299,9 +299,6 @@ def pn_data_encode(data, size):
     return PN_OVERFLOW, None
   else:
     return len(enc), enc
-
-def pn_data_encoded_size(data):
-  return data.encodedSize()
 
 def pn_data_decode(data, encoded):
   return data.decode(ByteBuffer.wrap(array(encoded, 'b')))

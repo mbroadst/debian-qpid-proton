@@ -17,7 +17,6 @@
 # under the License.
 #
 
-include(CheckIncludeFiles)
 include(CheckLibraryExists)
 include(CheckSymbolExists)
 
@@ -27,7 +26,6 @@ if(WIN32 AND NOT CYGWIN)
   # linking against Windows native libraries, including mingw
   set (PN_WINAPI TRUE)
   set (PLATFORM_LIBS ws2_32 Rpcrt4)
-  list(APPEND PLATFORM_DEFINITIONS "PN_WINAPI")
 endif(WIN32 AND NOT CYGWIN)
 
 # Can't use ${CMAKE_VERSION) as it is not available in all versions of cmake 2.6
@@ -38,7 +36,6 @@ if ("${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION}.${CMAKE_PATCH_VERSION}" VERSI
   # There are bugs in the OpenSSL detection that mean -lcrypto is missed from the link line
   # so turn off unknown symbol warnings
   set (NOENABLE_UNDEFINED_ERROR ON)
-  set (OLD_ADD_TEST_COMMAND ON)
 else()
   set (OPTIONAL_ARG OPTIONAL)
   add_custom_target(docs)
@@ -46,20 +43,8 @@ endif()
 
 # Set the default SSL/TLS implementation
 find_package(OpenSSL)
+
 find_package (PythonInterp REQUIRED)
-find_package(SWIG)
-# FindSwig.cmake "forgets" make its outputs advanced like a good citizen
-mark_as_advanced(SWIG_DIR SWIG_EXECUTABLE SWIG_VERSION)
-
-# See if Cyrus SASL is available
-find_library(CYRUS_SASL_LIBRARY sasl2)
-find_path(CYRUS_SASL_INCLUDE_DIR sasl/sasl.h PATH_SUFFIXES include)
-find_package_handle_standard_args(CyrusSASL DEFAULT_MSG CYRUS_SASL_LIBRARY CYRUS_SASL_INCLUDE_DIR)
-mark_as_advanced(CYRUS_SASL_LIBRARY CYRUS_SASL_INCLUDE_DIR)
-
-# Find saslpasswd2 executable to generate test config
-find_program(SASLPASSWD_EXE saslpasswd2 DOC "Program used to make SASL user db for testing")
-mark_as_advanced(SASLPASSWD_EXE)
 
 if(PN_WINAPI)
   set(ssl_impl schannel)
@@ -72,14 +57,7 @@ if (OPENSSL_FOUND)
   set(ssl_impl openssl)
 endif (OPENSSL_FOUND)
 set(SSL_IMPL ${ssl_impl} CACHE STRING "Library to use for SSL/TLS support. Valid values: ${ssl_providers}")
-
-set(sasl_providers cyrus none)
-if (CYRUSSASL_FOUND)
-  set (sasl_impl cyrus)
-else ()
-  set (sasl_impl none)
-endif ()
-set(SASL_IMPL ${sasl_impl} CACHE STRING "Library to use for SSL/TLS support. Valid values: ${sasl_providers}")
+mark_as_advanced (SSL_IMPL)
 
 configure_file (
   "${CMAKE_CURRENT_SOURCE_DIR}/include/proton/version.h.in"
@@ -118,26 +96,19 @@ else(PN_WINAPI)
   set (pn_selector_impl src/posix/selector.c)
 endif(PN_WINAPI)
 
-# Link in SASL if present
-if (SASL_IMPL STREQUAL cyrus)
-  set(pn_sasl_impl src/sasl/sasl.c src/sasl/cyrus_sasl.c)
-  include_directories (${CYRUS_SASL_INCLUDE_DIR})
-  set(SASL_LIB ${CYRUS_SASL_LIBRARY})
-elseif (SASL_IMPL STREQUAL none)
-  set(pn_sasl_impl src/sasl/sasl.c src/sasl/none_sasl.c)
-endif ()
-
 # Link in openssl if present
 if (SSL_IMPL STREQUAL openssl)
   set (pn_ssl_impl src/ssl/openssl.c)
-  include_directories (${OPENSSL_INCLUDE_DIR})
+  include_directories ("${OPENSSL_INCLUDE_DIR}")
   set (SSL_LIB ${OPENSSL_LIBRARIES})
-elseif (SSL_IMPL STREQUAL schannel)
-  set (pn_ssl_impl src/windows/schannel.c)
-  set (SSL_LIB Crypt32.lib Secur32.lib)
-else ()
-  set (pn_ssl_impl src/ssl/ssl_stub.c)
-endif ()
+else (SSL_IMPL STREQUAL openssl)
+  if (SSL_IMPL STREQUAL schannel)
+    set (pn_ssl_impl src/windows/schannel.c)
+    set (SSL_LIB Crypt32.lib Secur32.lib)
+  else (SSL_IMPL STREQUAL schannel)
+    set (pn_ssl_impl src/ssl/ssl_stub.c)
+  endif (SSL_IMPL STREQUAL schannel)
+endif (SSL_IMPL STREQUAL openssl)
 
 # First check whether we get clock_gettime without any special library linked
 CHECK_SYMBOL_EXISTS(clock_gettime "time.h" CLOCK_GETTIME_IN_LIBC)
@@ -157,6 +128,29 @@ else (CLOCK_GETTIME_IN_LIBC)
     endif (WINDOWS_FILETIME)
   endif (CLOCK_GETTIME_IN_RT)
 endif (CLOCK_GETTIME_IN_LIBC)
+
+CHECK_SYMBOL_EXISTS(uuid_generate "uuid/uuid.h" UUID_GENERATE_IN_LIBC)
+if (UUID_GENERATE_IN_LIBC)
+  list(APPEND PLATFORM_DEFINITIONS "USE_UUID_GENERATE")
+else (UUID_GENERATE_IN_LIBC)
+  CHECK_LIBRARY_EXISTS (uuid uuid_generate "" UUID_GENERATE_IN_UUID)
+  if (UUID_GENERATE_IN_UUID)
+    set (UUID_LIB uuid)
+    list(APPEND PLATFORM_DEFINITIONS "USE_UUID_GENERATE")
+  else (UUID_GENERATE_IN_UUID)
+    CHECK_SYMBOL_EXISTS(uuid_create "uuid.h" UUID_CREATE_IN_LIBC)
+    if (UUID_CREATE_IN_LIBC)
+      list(APPEND PLATFORM_DEFINITIONS "USE_UUID_CREATE")
+    else (UUID_CREATE_IN_LIBC)
+      CHECK_SYMBOL_EXISTS(UuidToString "rpc.h" WIN_UUID)
+      if (WIN_UUID)
+        list(APPEND PLATFORM_DEFINITIONS "USE_WIN_UUID")
+      else (WIN_UUID)
+        message(FATAL_ERROR "No Uuid API found")
+      endif (WIN_UUID)
+    endif (UUID_CREATE_IN_LIBC)
+  endif (UUID_GENERATE_IN_UUID)
+endif (UUID_GENERATE_IN_LIBC)
 
 if (PN_WINAPI)
   CHECK_SYMBOL_EXISTS(strerror_s "string.h" STRERROR_S_IN_WINAPI)
@@ -222,7 +216,7 @@ if (CMAKE_COMPILER_IS_GNUCC)
     set (COMPILE_LANGUAGE_FLAGS "-std=c99")
     set (COMPILE_PLATFORM_FLAGS "-std=gnu99")
 
-    execute_process(COMMAND ${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_ARG1} ${CMAKE_C_COMPILER_ARG2} -dumpversion OUTPUT_VARIABLE GCC_VERSION
+    execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion OUTPUT_VARIABLE GCC_VERSION
       OUTPUT_STRIP_TRAILING_WHITESPACE)
     if (${GCC_VERSION} VERSION_LESS "4.3.0")
       # Only a concern if contibuting code back.
@@ -262,6 +256,7 @@ macro (pn_absolute_install_dir NAME VALUE PREFIX)
   get_filename_component(${NAME} ${${NAME}} ABSOLUTE)
 endmacro()
 
+find_package(SWIG)
 if (SWIG_FOUND)
   add_subdirectory(bindings)
 endif (SWIG_FOUND)
@@ -274,7 +269,6 @@ set (qpid-proton-platform
   ${pn_io_impl}
   ${pn_selector_impl}
   src/platform.c
-  ${pn_sasl_impl}
   ${pn_ssl_impl}
   )
 
@@ -307,6 +301,7 @@ set (qpid-proton-core
   src/transport/autodetect.c
   src/transport/transport.c
   src/message/message.c
+  src/sasl/sasl.c
 
   src/reactor/reactor.c
   src/reactor/handler.c
@@ -323,8 +318,6 @@ set (qpid-proton-core
   src/messenger/store.c
   src/messenger/transform.c
   src/selectable.c
-
-  src/config.h
 
   ${CMAKE_CURRENT_BINARY_DIR}/src/encodings.h
   ${CMAKE_CURRENT_BINARY_DIR}/src/protocol.h
@@ -350,7 +343,7 @@ add_library (
   ${qpid-proton-platform}
   )
 
-target_link_libraries (qpid-proton ${UUID_LIB} ${SSL_LIB} ${SASL_LIB} ${TIME_LIB} ${PLATFORM_LIBS})
+target_link_libraries (qpid-proton ${UUID_LIB} ${SSL_LIB} ${TIME_LIB} ${PLATFORM_LIBS})
 
 set_target_properties (
   qpid-proton
@@ -450,6 +443,36 @@ install (FILES
 
 # CTest
 
+  # suffix for Visual Studio targets.  Only support RelWithDebInfo for now.
+if (MSVC)
+  set (bld_suffix "/RelWithDebInfo")
+endif(MSVC)
+
+if (CMAKE_SYSTEM_NAME STREQUAL Windows)
+
+  # Substitute windows separators in path and remove empty entries.
+  # Replace necessary colons after windows drive letters.
+  function(set_path result path)
+    string (REGEX REPLACE ":" ";" path "${path}")
+    string (REGEX REPLACE ";;" ";" path "${path}")
+    string (REGEX REPLACE "^;" "" path "${path}")
+    string (REGEX REPLACE "\\\\" "/" path "${path}")
+    string (REGEX REPLACE ";([a-zA-Z]);" ";\\1:" path "${path}")
+    string (REGEX REPLACE "^([a-zA-Z]);" "\\1:" path "${path}")
+    set (${result} ${path} PARENT_SCOPE)
+  endfunction()
+
+else (CMAKE_SYSTEM_NAME STREQUAL Windows)
+
+  # Set variable result to path, with empty entries removed
+  function(set_path result path)
+    string (REGEX REPLACE "^:" "" path "${path}")
+    string (REGEX REPLACE "::" ":" path "${path}")
+    set (${result} ${path} PARENT_SCOPE)
+  endfunction()
+
+endif (CMAKE_SYSTEM_NAME STREQUAL Windows)
+
 find_program(VALGRIND_EXE valgrind DOC "Location of the valgrind program")
 option(ENABLE_VALGRIND "Use valgrind to detect run-time problems" ON)
 if (ENABLE_VALGRIND)
@@ -466,104 +489,40 @@ mark_as_advanced (VALGRIND_EXE)
 
 add_subdirectory(src/tests)
 
-if (CMAKE_SYSTEM_NAME STREQUAL Windows)
-  # No change needed for windows already use correct separator
-  function(to_native_path path result)
-    file (TO_NATIVE_PATH "${path}" path)
-    set (${result} ${path} PARENT_SCOPE)
-  endfunction()
-else (CMAKE_SYSTEM_NAME STREQUAL Windows)
-  # Just change ';'->':'
-  function(to_native_path path result)
-    file (TO_NATIVE_PATH "${path}" path)
-    string (REGEX REPLACE ";" ":" path "${path}")
-    set (${result} ${path} PARENT_SCOPE)
-  endfunction()
-endif (CMAKE_SYSTEM_NAME STREQUAL Windows)
-
 # python test: tests/python/proton-test
 if (BUILD_PYTHON)
-  set (pn_c_root "${CMAKE_BINARY_DIR}/proton")
   set (py_root "${pn_test_root}/python")
   set (py_src "${CMAKE_CURRENT_SOURCE_DIR}/bindings/python")
   set (py_bin "${CMAKE_CURRENT_BINARY_DIR}/bindings/python")
-  set (py_dll "$<TARGET_FILE_DIR:_cproton>")
-  set (py_bld "$<TARGET_FILE_DIR:qpid-proton>") # For windows
-  set (app_path $<TARGET_FILE_DIR:msgr-send> "${pn_test_root}/tools/apps/python")
-  set (py_path ${py_bld} ${app_path} $ENV{PATH})
-  set (py_pythonpath ${py_root} ${py_src} ${py_bin} ${py_dll} $ENV{PYTHONPATH})
-  to_native_path ("${py_pythonpath}" py_pythonpath)
-
-  if (NOT OLD_ADD_TEST_COMMAND)
-    to_native_path ("${py_path}" py_path)
-    add_test (NAME python-test
-              COMMAND ${env_py}
-                "PATH=${py_path}" "PYTHONPATH=${py_pythonpath}" "PKG_CONFIG_PATH=${pn_c_root}"
-                "CLASSPATH=${CMAKE_BINARY_DIR}/proton-j/proton-j.jar"
-                "SASLPASSWD=${SASLPASSWD_EXE}"
-                ${VALGRIND_ENV}
-                ${PYTHON_EXECUTABLE} "${py_root}/proton-test")
-    set_tests_properties(python-test PROPERTIES PASS_REGULAR_EXPRESSION "Totals: .* 0 failed")
-  else (NOT OLD_ADD_TEST_COMMAND)
-    list (APPEND py_path "${Proton_BINARY_DIR}/tests/tools/apps/c")
-    to_native_path ("${py_path}" py_path)
-    add_test (python-test
-                ${env_py}
-                "PATH=${py_path}" "PYTHONPATH=${py_pythonpath}" "PKG_CONFIG_PATH=${pn_c_root}"
-                "CLASSPATH=${CMAKE_BINARY_DIR}/proton-j/proton-j.jar"
-                "SASLPASSWD=${SASLPASSWD_EXE}"
-                ${VALGRIND_ENV}
-                ${PYTHON_EXECUTABLE} "${py_root}/proton-test")
-    set_tests_properties(python-test PROPERTIES PASS_REGULAR_EXPRESSION "Totals: .* 0 failed")
-  endif (NOT OLD_ADD_TEST_COMMAND)
-
-  # Eventually, we'll get rid of this check when other
-  # platforms will be supported. Since `setup.py` will skip
-  # the build for non linux plaforms, it doesn't make sense
-  # to try to run them.
-  if (CMAKE_SYSTEM_NAME STREQUAL Linux)
-   find_program(TOX_EXE "tox")
-   mark_as_advanced(TOX_EXE)
-   if (TOX_EXE)
-     to_native_path ("${py_path}" py_path)
-     add_test (NAME python-tox-test
-               WORKING_DIRECTORY ${py_src}
-               COMMAND ${env_py}
-                 "PATH=${py_path}" "QPID_PROTON_SRC=${CMAKE_CURRENT_SOURCE_DIR}/../"
-                 "CLASSPATH=${CMAKE_BINARY_DIR}/proton-j/proton-j.jar"
-                 "SASLPASSWD=${SASLPASSWD_EXE}"
-                 "SWIG=${SWIG_EXECUTABLE}"
-                 ${VALGRIND_ENV}
-                 ${TOX_EXE})
-     set_tests_properties(python-tox-test
-                          PROPERTIES
-                          PASS_REGULAR_EXPRESSION "Totals: .* ignored, 0 failed"
-                          FAIL_REGULAR_EXPRESSION "ERROR:[ ]+py[0-9]*: commands failed")
-   else (TOX_EXE)
-     message(STATUS "The tox tool is not available - skipping the python-tox-tests")
-   endif (TOX_EXE)
-  endif (CMAKE_SYSTEM_NAME STREQUAL Linux)
-
+  set (py_bld "${CMAKE_CURRENT_BINARY_DIR}${bld_suffix}") # For windows
+  set (app_path "${pn_test_bin}/tools/apps/c${bld_suffix}")
+  set (app_path "${app_path}:${pn_test_root}/tools/apps/python")
+  set_path (py_path "${py_bin}:${py_bld}:${app_path}:$ENV{PATH}")
+  set_path (py_pythonpath "${py_root}:${py_src}:${py_bin}:${py_bld}|$ENV{PYTHONPATH}")
+  if (CMAKE_SYSTEM_NAME STREQUAL Windows)
+    set_path (py_pythonpath "${py_bin}${bld_suffix}:${py_pythonpath}")
+  endif (CMAKE_SYSTEM_NAME STREQUAL Windows)
+  add_test (python-test ${env_py}
+            "PATH=${py_path}" "PYTHONPATH=${py_pythonpath}" ${VALGRIND_ENV}
+            ${PYTHON_EXECUTABLE} "${py_root}/proton-test")
+  set_tests_properties(python-test PROPERTIES PASS_REGULAR_EXPRESSION "Totals: .* 0 failed")
 endif (BUILD_PYTHON)
 
 find_program(RUBY_EXE "ruby")
-if (RUBY_EXE AND BUILD_RUBY)
+if (RUBY_EXE)
+  set (rb_root "${pn_test_root}/ruby")
+  set (rb_src "${CMAKE_CURRENT_SOURCE_DIR}/bindings/ruby")
+  set (rb_lib "${CMAKE_CURRENT_SOURCE_DIR}/bindings/ruby/lib")
+  set (rb_bin "${CMAKE_CURRENT_BINARY_DIR}/bindings/ruby")
+  set (rb_bld "${CMAKE_CURRENT_BINARY_DIR}${bld_suffix}")
+  set (rb_path "$ENV{PATH}:${rb_bin}:${rb_bld}")
+  set (rb_rubylib "${rb_root}:${rb_src}:${rb_bin}:${rb_bld}:${rb_lib}")
+
   # ruby unit tests:  tests/ruby/proton-test
   # only enable the tests if the Ruby gem dependencies were found
   if (DEFAULT_RUBY_TESTING)
-    set (rb_root "${pn_test_root}/ruby")
-    set (rb_src "${CMAKE_CURRENT_SOURCE_DIR}/bindings/ruby")
-    set (rb_lib "${CMAKE_CURRENT_SOURCE_DIR}/bindings/ruby/lib")
-    set (rb_bin "${CMAKE_CURRENT_BINARY_DIR}/bindings/ruby")
-    set (rb_bld "$<TARGET_FILE_DIR:qpid-proton>")
-    set (rb_path $ENV{PATH} ${rb_bin} ${rb_bld})
-    set (rb_rubylib ${rb_root} ${rb_src} ${rb_bin} ${rb_bld} ${rb_lib})
-    to_native_path("${rb_path}" rb_path)
-    to_native_path("${rb_rubylib}" rb_rubylib)
-
-    add_test (NAME ruby-unit-test
-              COMMAND ${env_py} "PATH=${rb_path}" "RUBYLIB=${rb_rubylib}"
-                      "${rb_root}/proton-test")
+    add_test (ruby-unit-test ${env_py} "PATH=${rb_path}" "RUBYLIB=${rb_rubylib}"
+      "${rb_root}/proton-test")
 
     # ruby spec tests
     find_program(RSPEC_EXE rspec)
@@ -581,7 +540,7 @@ if (RUBY_EXE AND BUILD_RUBY)
   endif (DEFAULT_RUBY_TESTING)
 else (RUBY_EXE)
   message (STATUS "Cannot find ruby, skipping ruby tests")
-endif()
+endif (RUBY_EXE)
 
 mark_as_advanced (RUBY_EXE RSPEC_EXE)
 

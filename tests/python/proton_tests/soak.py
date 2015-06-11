@@ -1,4 +1,3 @@
-from __future__ import absolute_import
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -19,7 +18,7 @@ from __future__ import absolute_import
 #
 import os
 import sys
-from .common import Test, Skipped, free_tcp_ports, \
+from common import Test, Skipped, free_tcp_ports, \
     MessengerReceiverC, MessengerSenderC, \
     MessengerReceiverValgrind, MessengerSenderValgrind, \
     MessengerReceiverPython, MessengerSenderPython, \

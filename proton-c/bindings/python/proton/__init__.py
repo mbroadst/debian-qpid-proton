@@ -29,14 +29,11 @@ The proton APIs consist of the following classes:
                   data.
 
 """
-from __future__ import absolute_import
 
 from cproton import *
-from .wrapper import Wrapper
-from . import _compat
+from wrapper import Wrapper
 
 import weakref, socket, sys, threading
-
 try:
   import uuid
 
@@ -79,16 +76,16 @@ except ImportError:
   rand = random.Random()
   rand.seed((os.getpid(), time.time(), socket.gethostname()))
   def random_uuid():
-    data = [rand.randint(0, 255) for i in xrange(16)]
+    bytes = [rand.randint(0, 255) for i in xrange(16)]
 
     # From RFC4122, the version bits are set to 0100
-    data[6] &= 0x0F
-    data[6] |= 0x40
+    bytes[7] &= 0x0F
+    bytes[7] |= 0x40
 
     # From RFC4122, the top two bits of byte 8 get set to 01
-    data[8] &= 0x3F
-    data[8] |= 0x80
-    return "".join(map(chr, data))
+    bytes[8] &= 0x3F
+    bytes[8] |= 0x80
+    return "".join(map(chr, bytes))
 
   def uuid4():
     return uuid.UUID(bytes=random_uuid())
@@ -96,22 +93,10 @@ except ImportError:
   def generate_uuid():
     return uuid4()
 
-#
-# Hacks to provide Python2 <---> Python3 compatibility
-#
 try:
   bytes()
 except NameError:
   bytes = str
-try:
-  long()
-except NameError:
-  long = int
-try:
-  unicode()
-except NameError:
-  unicode = str
-
 
 VERSION_MAJOR = PN_VERSION_MAJOR
 VERSION_MINOR = PN_VERSION_MINOR
@@ -805,7 +790,7 @@ class Message(object):
     self.annotations = None
     self.properties = None
     self.body = body
-    for k,v in _compat.iteritems(kwargs):
+    for k,v in kwargs.iteritems():
       getattr(self, k)          # Raise exception if it's not a valid attribute.
       setattr(self, k, v)
 
@@ -950,7 +935,7 @@ The number of delivery attempts made for this message.
   def _get_id(self):
     return self._id.get_object()
   def _set_id(self, value):
-    if type(value) in _compat.INT_TYPES:
+    if type(value) in (int, long):
       value = ulong(value)
     self._id.rewind()
     self._id.put_object(value)
@@ -1006,7 +991,7 @@ The reply-to address for the message.
   def _get_correlation_id(self):
     return self._correlation_id.get_object()
   def _set_correlation_id(self, value):
-    if type(value) in _compat.INT_TYPES:
+    if type(value) in (int, long):
       value = ulong(value)
     self._correlation_id.rewind()
     self._correlation_id.put_object(value)
@@ -1106,7 +1091,7 @@ The group-id for any replies.
         return data
 
   def decode(self, data):
-    self._check(pn_message_decode(self._msg, data))
+    self._check(pn_message_decode(self._msg, data, len(data)))
     self._post_decode()
 
   def send(self, sender, tag=None):
@@ -1314,9 +1299,6 @@ class Array(object):
     self.type = type
     self.elements = elements
 
-  def __iter__(self):
-    return iter(self.elements)
-
   def __repr__(self):
     if self.elements:
       els = ", %s"  % (", ".join(map(repr, self.elements)))
@@ -1441,7 +1423,7 @@ class Data:
   def type_name(type): return Data.type_names[type]
 
   def __init__(self, capacity=16):
-    if type(capacity) in _compat.INT_TYPES:
+    if type(capacity) in (int, long):
       self._data = pn_data(capacity)
       self._free = True
     else:
@@ -1532,12 +1514,6 @@ class Data:
       return None
     else:
       return dtype
-
-  def encoded_size(self):
-    """
-    Returns the size in bytes needed to encode the data in AMQP format.
-    """
-    return pn_data_encoded_size(self._data)
 
   def encode(self):
     """
@@ -1806,7 +1782,7 @@ class Data:
     @type s: string
     @param s: the symbol name
     """
-    self._check(pn_data_put_symbol(self._data, s.encode('ascii')))
+    self._check(pn_data_put_symbol(self._data, s))
 
   def get_list(self):
     """
@@ -1937,14 +1913,14 @@ class Data:
     If the current node is a signed int, returns its value, returns 0
     otherwise.
     """
-    return int(pn_data_get_int(self._data))
+    return pn_data_get_int(self._data)
 
   def get_char(self):
     """
     If the current node is a char, returns its value, returns 0
     otherwise.
     """
-    return char(_compat.unichar(pn_data_get_char(self._data)))
+    return char(unichr(pn_data_get_char(self._data)))
 
   def get_ulong(self):
     """
@@ -1958,7 +1934,7 @@ class Data:
     If the current node is an signed long, returns its value, returns
     0 otherwise.
     """
-    return long(pn_data_get_long(self._data))
+    return pn_data_get_long(self._data)
 
   def get_timestamp(self):
     """
@@ -2034,7 +2010,7 @@ class Data:
     If the current node is a symbol, returns its value, returns ""
     otherwise.
     """
-    return symbol(pn_data_get_symbol(self._data).decode('ascii'))
+    return symbol(pn_data_get_symbol(self._data))
 
   def copy(self, src):
     self._check(pn_data_copy(self._data, src._data))
@@ -2161,8 +2137,9 @@ class Data:
     unicode: put_string,
     bytes: put_binary,
     symbol: put_symbol,
-    long: put_long,
+    int: put_long,
     char: put_char,
+    long: put_long,
     ulong: put_ulong,
     timestamp: put_timestamp,
     float: put_double,
@@ -2170,11 +2147,6 @@ class Data:
     Described: put_py_described,
     Array: put_py_array
     }
-  # for python 3.x, long is merely an alias for int, but for python 2.x
-  # we need to add an explicit int since it is a different type
-  if int not in put_mappings:
-      put_mappings[int] = put_int
-
   get_mappings = {
     NULL: lambda s: None,
     BOOL: get_bool,
@@ -2247,7 +2219,7 @@ class Endpoint(object):
       assert False, "Subclass must override this!"
 
   def _get_handler(self):
-    from . import reactor
+    import reactor
     ractor = reactor.Reactor.wrap(pn_object_reactor(self._impl))
     if ractor:
       on_error = ractor.on_error
@@ -2257,7 +2229,7 @@ class Endpoint(object):
     return WrappedHandler.wrap(pn_record_get_handler(record), on_error)
 
   def _set_handler(self, handler):
-    from . import reactor
+    import reactor
     ractor = reactor.Reactor.wrap(pn_object_reactor(self._impl))
     if ractor:
       on_error = ractor.on_error
@@ -2338,34 +2310,21 @@ def millis2timeout(millis):
   return millis2secs(millis)
 
 def unicode2utf8(string):
-    """Some Proton APIs expect a null terminated string. Convert python text
-    types to UTF8 to avoid zero bytes introduced by other multi-byte encodings.
-    This method will throw if the string cannot be converted.
-    """
     if string is None:
         return None
-    if _compat.IS_PY2:
-        if isinstance(string, unicode):
-            return string.encode('utf-8')
-        elif isinstance(string, str):
-            return string
+    if isinstance(string, unicode):
+        return string.encode('utf8')
+    elif isinstance(string, str):
+        return string
     else:
-        # decoding a string results in bytes
-        if isinstance(string, str):
-            string = string.encode('utf-8')
-            # fall through
-        if isinstance(string, bytes):
-            return string.decode('utf-8')
-    raise TypeError("Unrecognized string type: %r (%s)" % (string, type(string)))
+        raise TypeError("Unrecognized string type: %r" % string)
 
 def utf82unicode(string):
-    """Covert C strings returned from proton-c into python unicode"""
     if string is None:
         return None
-    if isinstance(string, _compat.TEXT_TYPES):
-        # already unicode
+    if isinstance(string, unicode):
         return string
-    elif isinstance(string, _compat.BINARY_TYPES):
+    elif isinstance(string, str):
         return string.decode('utf8')
     else:
         raise TypeError("Unrecognized string type")
@@ -2436,20 +2395,6 @@ class Connection(Wrapper, Endpoint):
 
   hostname = property(_get_hostname, _set_hostname)
 
-  def _get_user(self):
-    return utf82unicode(pn_connection_get_user(self._impl))
-  def _set_user(self, name):
-    return pn_connection_set_user(self._impl, unicode2utf8(name))
-
-  user = property(_get_user, _set_user)
-
-  def _get_password(self):
-    return None
-  def _set_password(self, name):
-    return pn_connection_set_password(self._impl, unicode2utf8(name))
-
-  password = property(_get_password, _set_password)
-
   @property
   def remote_container(self):
     """The container identifier specified by the remote peer for this connection."""
@@ -2516,11 +2461,7 @@ class Connection(Wrapper, Endpoint):
     """
     Returns a new session on this connection.
     """
-    ssn = pn_session(self._impl)
-    if ssn is None:
-      raise(SessionException("Session allocation failed."))
-    else:
-      return Session(ssn)
+    return Session(pn_session(self._impl))
 
   def session_head(self, mask):
     return Session.wrap(pn_session_head(self._impl, mask))
@@ -2570,14 +2511,6 @@ class Session(Wrapper, Endpoint):
     pn_session_set_incoming_capacity(self._impl, capacity)
 
   incoming_capacity = property(_get_incoming_capacity, _set_incoming_capacity)
-
-  def _get_outgoing_window(self):
-    return pn_session_get_outgoing_window(self._impl)
-
-  def _set_outgoing_window(self, window):
-    pn_session_set_outgoing_window(self._impl, window)
-
-  outgoing_window = property(_get_outgoing_window, _set_outgoing_window)
 
   @property
   def outgoing_bytes(self):
@@ -2750,7 +2683,6 @@ class Link(Wrapper, Endpoint):
 
   @property
   def name(self):
-    """Returns the name of the link"""
     return utf82unicode(pn_link_name(self._impl))
 
   @property
@@ -2815,11 +2747,6 @@ class Terminus(object):
   DIST_MODE_COPY = PN_DIST_MODE_COPY
   DIST_MODE_MOVE = PN_DIST_MODE_MOVE
 
-  EXPIRE_WITH_LINK = PN_EXPIRE_WITH_LINK
-  EXPIRE_WITH_SESSION = PN_EXPIRE_WITH_SESSION
-  EXPIRE_WITH_CONNECTION = PN_EXPIRE_WITH_CONNECTION
-  EXPIRE_NEVER = PN_EXPIRE_NEVER
-
   def __init__(self, impl):
     self._impl = impl
 
@@ -2837,7 +2764,6 @@ class Terminus(object):
   type = property(_get_type, _set_type)
 
   def _get_address(self):
-    """The address that identifies the source or target node"""
     return utf82unicode(pn_terminus_get_address(self._impl))
   def _set_address(self, address):
     self._check(pn_terminus_set_address(self._impl, unicode2utf8(address)))
@@ -2862,8 +2788,6 @@ class Terminus(object):
   timeout = property(_get_timeout, _set_timeout)
 
   def _is_dynamic(self):
-    """Indicates whether the source or target node was dynamically
-    created"""
     return pn_terminus_is_dynamic(self._impl)
   def _set_dynamic(self, dynamic):
     self._check(pn_terminus_set_dynamic(self._impl, dynamic))
@@ -2877,12 +2801,10 @@ class Terminus(object):
 
   @property
   def properties(self):
-    """Properties of a dynamic source or target."""
     return Data(pn_terminus_properties(self._impl))
 
   @property
   def capabilities(self):
-    """Capabilities of the source or target."""
     return Data(pn_terminus_capabilities(self._impl))
 
   @property
@@ -2891,8 +2813,6 @@ class Terminus(object):
 
   @property
   def filter(self):
-    """A filter on a source allows the set of messages transfered over
-    the link to be restricted"""
     return Data(pn_terminus_filter(self._impl))
 
   def copy(self, src):
@@ -2906,14 +2826,11 @@ class Sender(Link):
   def offered(self, n):
     pn_link_offered(self._impl, n)
 
-  def stream(self, data):
+  def stream(self, bytes):
     """
-    Send specified data as part of the current delivery
-
-    @type data: binary
-    @param data: data to send
+    Send specified bytes as part of the current delivery
     """
-    return self._check(pn_link_send(self._impl, data))
+    return self._check(pn_link_send(self._impl, bytes))
 
   def send(self, obj, tag=None):
     """
@@ -2938,7 +2855,7 @@ class Sender(Link):
           yield str(count)
           count += 1
       self.tag_generator = simple_tags()
-    return next(self.tag_generator)
+    return self.tag_generator.next()
 
 class Receiver(Link):
   """
@@ -2950,12 +2867,12 @@ class Receiver(Link):
     pn_link_flow(self._impl, n)
 
   def recv(self, limit):
-    n, binary = pn_link_recv(self._impl, limit)
+    n, bytes = pn_link_recv(self._impl, limit)
     if n == PN_EOS:
       return None
     else:
       self._check(n)
-      return binary
+      return bytes
 
   def drain(self, n):
     pn_link_drain(self._impl, n)
@@ -3194,14 +3111,6 @@ class Delivery(Wrapper):
 class TransportException(ProtonException):
   pass
 
-class TraceAdapter:
-
-  def __init__(self, tracer):
-    self.tracer = tracer
-
-  def __call__(self, trans_impl, message):
-    self.tracer(Transport.wrap(trans_impl), message)
-
 class Transport(Wrapper):
 
   TRACE_OFF = PN_TRACE_OFF
@@ -3239,42 +3148,6 @@ class Transport(Wrapper):
     else:
       return err
 
-  def _set_tracer(self, tracer):
-    pn_transport_set_pytracer(self._impl, TraceAdapter(tracer));
-
-  def _get_tracer(self):
-    adapter = pn_transport_get_pytracer(self._impl)
-    if adapter:
-      return adapter.tracer
-    else:
-      return None
-
-  tracer = property(_get_tracer, _set_tracer,
-                            doc="""
-A callback for trace logging. The callback is passed the transport and log message.
-""")
-
-  def log(self, message):
-    pn_transport_log(self._impl, message)
-
-  def require_auth(self, bool):
-    pn_transport_require_auth(self._impl, bool)
-
-  @property
-  def authenticated(self):
-    return pn_transport_is_authenticated(self._impl)
-
-  def require_encryption(self, bool):
-    pn_transport_require_encryption(self._impl, bool)
-
-  @property
-  def encrypted(self):
-    return pn_transport_is_encrypted(self._impl)
-
-  @property
-  def user(self):
-    return pn_transport_get_user(self._impl)
-
   def bind(self, connection):
     """Assign a connection to the transport"""
     self._check(pn_transport_bind(self._impl, connection._impl))
@@ -3299,10 +3172,10 @@ A callback for trace logging. The callback is passed the transport and log messa
     else:
       return self._check(c)
 
-  def push(self, binary):
-    n = self._check(pn_transport_push(self._impl, binary))
-    if n != len(binary):
-      raise OverflowError("unable to process all bytes: %s, %s" % (n, len(binary)))
+  def push(self, bytes):
+    n = self._check(pn_transport_push(self._impl, bytes))
+    if n != len(bytes):
+      raise OverflowError("unable to process all bytes")
 
   def close_tail(self):
     self._check(pn_transport_close_tail(self._impl))
@@ -3352,8 +3225,7 @@ Sets the maximum size for received frames (in bytes).
     return pn_transport_get_channel_max(self._impl)
 
   def _set_channel_max(self, value):
-    if pn_transport_set_channel_max(self._impl, value):
-      raise SessionException("Too late to change channel max.")
+    pn_transport_set_channel_max(self._impl, value)
 
   channel_max = property(_get_channel_max, _set_channel_max,
                          doc="""
@@ -3412,13 +3284,7 @@ class SASL(Wrapper):
 
   OK = PN_SASL_OK
   AUTH = PN_SASL_AUTH
-  SYS = PN_SASL_SYS
-  PERM = PN_SASL_PERM
-  TEMP = PN_SASL_TEMP
-
-  @staticmethod
-  def extended():
-    return pn_sasl_extended()
+  SKIPPED = PN_SASL_SKIPPED
 
   def __init__(self, transport):
     Wrapper.__init__(self, transport._impl, pn_transport_attachments)
@@ -3431,13 +3297,38 @@ class SASL(Wrapper):
     else:
       return err
 
-  @property
-  def user(self):
-    return pn_sasl_get_user(self._sasl)
+  def mechanisms(self, mechs):
+    pn_sasl_mechanisms(self._sasl, mechs)
 
-  @property
-  def mech(self):
-    return pn_sasl_get_mech(self._sasl)
+  # @deprecated
+  def client(self):
+    pn_sasl_client(self._sasl)
+
+  # @deprecated
+  def server(self):
+    pn_sasl_server(self._sasl)
+
+  def allow_skip(self, allow):
+    pn_sasl_allow_skip(self._sasl, allow)
+
+  def plain(self, user, password):
+    pn_sasl_plain(self._sasl, user, password)
+
+  def send(self, data):
+    self._check(pn_sasl_send(self._sasl, data, len(data)))
+
+  def recv(self):
+    sz = 16
+    while True:
+      n, data = pn_sasl_recv(self._sasl, sz)
+      if n == PN_OVERFLOW:
+        sz *= 2
+        continue
+      elif n == PN_EOS:
+        return None
+      else:
+        self._check(n)
+        return data
 
   @property
   def outcome(self):
@@ -3447,28 +3338,18 @@ class SASL(Wrapper):
     else:
       return outcome
 
-  def allowed_mechs(self, mechs):
-    pn_sasl_allowed_mechs(self._sasl, mechs)
-
-  def _get_allow_insecure_mechs(self):
-    return pn_sasl_get_allow_insecure_mechs(self._sasl)
-
-  def _set_allow_insecure_mechs(self, insecure):
-    pn_sasl_set_allow_insecure_mechs(self._sasl, insecure)
-
-  allow_insecure_mechs = property(_get_allow_insecure_mechs, _set_allow_insecure_mechs,
-                                  doc="""
-Allow unencrypted cleartext passwords (PLAIN mech)
-""")
-
   def done(self, outcome):
     pn_sasl_done(self._sasl, outcome)
 
-  def config_name(self, name):
-    pn_sasl_config_name(self._sasl, name)
+  STATE_IDLE = PN_SASL_IDLE
+  STATE_STEP = PN_SASL_STEP
+  STATE_PASS = PN_SASL_PASS
+  STATE_FAIL = PN_SASL_FAIL
 
-  def config_path(self, path):
-    pn_sasl_config_path(self._sasl, path)
+  @property
+  def state(self):
+    return pn_sasl_state(self._sasl)
+
 
 class SSLException(TransportException):
   pass
@@ -3547,8 +3428,7 @@ class SSL(object):
       obj._ssl = pn_ssl( transport._impl )
       if obj._ssl is None:
         raise SSLUnavailable()
-      if domain:
-        pn_ssl_init( obj._ssl, domain._domain, session_id )
+      pn_ssl_init( obj._ssl, domain._domain, session_id )
       transport._ssl = obj
     return transport._ssl
 
@@ -3563,10 +3443,6 @@ class SSL(object):
     if rc:
       return name
     return None
-
-  @property
-  def remote_subject(self):
-    return pn_ssl_get_remote_subject( self._ssl )
 
   RESUME_UNKNOWN = PN_SSL_RESUME_UNKNOWN
   RESUME_NEW = PN_SSL_RESUME_NEW
@@ -3854,7 +3730,7 @@ class _cadapter:
 
   def exception(self, exc, val, tb):
     if self.on_error is None:
-      _compat.raise_(exc, val, tb)
+      raise exc, val, tb
     else:
       self.on_error((exc, val, tb))
 
@@ -3875,7 +3751,7 @@ class WrappedHandler(Wrapper):
   def _on_error(self, info):
     on_error = getattr(self, "on_error", None)
     if on_error is None:
-      _compat.raise_(info[0], info[1], info[2])
+      raise info[0], info[1], info[2]
     else:
       on_error(info)
 
@@ -3957,7 +3833,7 @@ class Url(object):
       If specified, replaces corresponding part in url string.
     """
     if url:
-      self._url = pn_url_parse(unicode2utf8(str(url)))
+      self._url = pn_url_parse(str(url))
       if not self._url: raise ValueError("Invalid URL '%s'" % url)
     else:
       self._url = pn_url()
@@ -4046,7 +3922,6 @@ __all__ = [
            "SASL",
            "Sender",
            "Session",
-           "SessionException",
            "SSL",
            "SSLDomain",
            "SSLSessionDetails",

@@ -42,7 +42,7 @@
 #include "transform.h"
 #include "subscription.h"
 #include "selectable.h"
-#include "log_private.h"
+#include "../log_private.h"
 
 typedef struct pn_link_ctx_t pn_link_ctx_t;
 
@@ -233,13 +233,6 @@ void pni_lnr_modified(pn_listener_ctx_t *lnr)
 
 int pn_messenger_process_events(pn_messenger_t *messenger);
 
-static void pni_connection_error(pn_selectable_t *sel)
-{
-  pn_transport_t *transport = pni_transport(sel);
-  pn_transport_close_tail(transport);
-  pn_transport_close_head(transport);
-}
-
 static void pni_connection_readable(pn_selectable_t *sel)
 {
   pn_connection_ctx_t *context = pni_context(sel);
@@ -334,12 +327,13 @@ static void pni_listener_readable(pn_selectable_t *sel)
 
   pn_transport_t *t = pn_transport();
   pn_transport_set_server(t);
-  if (ctx->messenger->flags & PN_FLAGS_ALLOW_INSECURE_MECHS) {
-      pn_sasl_t *s = pn_sasl(t);
-      pn_sasl_set_allow_insecure_mechs(s, true);
-  }
+
   pn_ssl_t *ssl = pn_ssl(t);
   pn_ssl_init(ssl, ctx->domain, NULL);
+  pn_sasl_t *sasl = pn_sasl(t);
+
+  pn_sasl_mechanisms(sasl, "ANONYMOUS");
+  pn_sasl_done(sasl, PN_SASL_OK);
 
   pn_connection_t *conn = pn_messenger_connection(ctx->messenger, sock, scheme, NULL, NULL, NULL, NULL, ctx);
   pn_transport_bind(t, conn);
@@ -454,7 +448,6 @@ static pn_connection_ctx_t *pn_connection_ctx(pn_messenger_t *messenger,
   ctx->connection = conn;
   pn_selectable_t *sel = pn_selectable();
   ctx->selectable = sel;
-  pn_selectable_on_error(sel, pni_connection_error);
   pn_selectable_on_readable(sel, pni_connection_readable);
   pn_selectable_on_writable(sel, pni_connection_writable);
   pn_selectable_on_expired(sel, pni_connection_expired);
@@ -496,54 +489,13 @@ static void pn_connection_ctx_free(pn_connection_t *conn)
 #define pn_tracker_direction(tracker) ((tracker) & (0x1000000000000000))
 #define pn_tracker_sequence(tracker) ((pn_sequence_t) ((tracker) & (0x00000000FFFFFFFF)))
 
-
 static char *build_name(const char *name)
 {
-  static bool seeded = false;
-  // UUID standard format: 8-4-4-4-12 (36 chars, 32 alphanumeric and 4 hypens)
-  static const char *uuid_fmt = "%02X%02X%02X%02X-%02X%02X-%02X%02X-%02X%02X-%02X%02X%02X%02X%02X%02X";
-
-  int count = 0;
-  char *generated;
-  uint8_t bytes[16];
-  unsigned int r = 0;
-
   if (name) {
     return pn_strdup(name);
+  } else {
+    return pn_i_genuuid();
   }
-
-  if (!seeded) {
-    int pid = pn_i_getpid();
-    int nowish = (int)pn_i_now();
-    // the lower bits of time are the most random, shift pid to push some
-    // randomness into the higher order bits
-    srand(nowish ^ (pid<<16));
-    seeded = true;
-  }
-
-  while (count < 16) {
-    if (!r) {
-      r =  (unsigned int) rand();
-    }
-
-    bytes[count] = r & 0xFF;
-    r >>= 8;
-    count++;
-  }
-
-  // From RFC4122, the version bits are set to 0100
-  bytes[6] = (bytes[6] & 0x0F) | 0x40;
-
-  // From RFC4122, the top two bits of byte 8 get set to 01
-  bytes[8] = (bytes[8] & 0x3F) | 0x80;
-
-  generated = (char *) malloc(37*sizeof(char));
-  sprintf(generated, uuid_fmt,
-	  bytes[0], bytes[1], bytes[2], bytes[3],
-	  bytes[4], bytes[5], bytes[6], bytes[7],
-	  bytes[8], bytes[9], bytes[10], bytes[11],
-	  bytes[12], bytes[13], bytes[14], bytes[15]);
-  return generated;
 }
 
 struct pn_link_ctx_t {
@@ -664,7 +616,7 @@ pn_messenger_t *pn_messenger(const char *name)
     m->rewritten = pn_string(NULL);
     m->domain = pn_string(NULL);
     m->connection_error = 0;
-    m->flags = PN_FLAGS_ALLOW_INSECURE_MECHS; // TODO: Change this back to 0 for the Proton 0.11 release
+    m->flags = 0;
     m->snd_settle_mode = PN_SND_SETTLED;
     m->rcv_settle_mode = PN_RCV_FIRST;
     m->tracer = NULL;
@@ -964,7 +916,17 @@ static int pn_transport_config(pn_messenger_t *messenger,
     }
     pn_ssl_t *ssl = pn_ssl(transport);
     pn_ssl_init(ssl, d, NULL);
+    pn_ssl_set_peer_hostname(ssl, pn_connection_get_hostname(connection));
     pn_ssl_domain_free( d );
+  }
+
+  if (ctx->user) {
+    pn_sasl_t *sasl = pn_sasl(transport);
+    if (ctx->pass) {
+      pn_sasl_plain(sasl, ctx->user, ctx->pass);
+    } else {
+      pn_sasl_mechanisms(sasl, "ANONYMOUS");
+    }
   }
 
   return 0;
@@ -990,7 +952,7 @@ static void pn_condition_report(const char *pfx, pn_condition_t *condition)
 int pni_pump_in(pn_messenger_t *messenger, const char *address, pn_link_t *receiver)
 {
   pn_delivery_t *d = pn_link_current(receiver);
-  if (!pn_delivery_readable(d) || pn_delivery_partial(d)) {
+  if (!pn_delivery_readable(d) && !pn_delivery_partial(d)) {
     return 0;
   }
 
@@ -1111,8 +1073,6 @@ pn_connection_t *pn_messenger_connection(pn_messenger_t *messenger,
 
   pn_connection_set_container(connection, messenger->name);
   pn_connection_set_hostname(connection, host);
-  pn_connection_set_user(connection, user);
-  pn_connection_set_password(connection, pass);
 
   pn_list_add(messenger->connections, connection);
 
@@ -1143,11 +1103,6 @@ void pn_messenger_process_connection(pn_messenger_t *messenger, pn_event_t *even
       pn_transport_unbind(pn_connection_transport(conn));
       pn_connection_reset(conn);
       pn_transport_t *t = pn_transport();
-      if (messenger->flags & PN_FLAGS_ALLOW_INSECURE_MECHS &&
-          messenger->address.user && messenger->address.pass) {
-        pn_sasl_t *s = pn_sasl(t);
-        pn_sasl_set_allow_insecure_mechs(s, true);
-      }
       pn_transport_bind(t, conn);
       pn_decref(t);
       pn_transport_config(messenger, conn);
@@ -1372,9 +1327,6 @@ int pn_messenger_process(pn_messenger_t *messenger)
     }
     if (events & PN_EXPIRED) {
       pn_selectable_expired(sel);
-    }
-    if (events & PN_ERROR) {
-      pn_selectable_error(sel);
     }
   }
   // ensure timer events are processed. Cannot call this inside the while loop
@@ -1679,10 +1631,6 @@ pn_connection_t *pn_messenger_resolve(pn_messenger_t *messenger, const char *add
   pn_connection_t *connection =
     pn_messenger_connection(messenger, sock, scheme, user, pass, host, port, NULL);
   pn_transport_t *transport = pn_transport();
-  if (messenger->flags & PN_FLAGS_ALLOW_INSECURE_MECHS && user && pass) {
-      pn_sasl_t *s = pn_sasl(transport);
-      pn_sasl_set_allow_insecure_mechs(s, true);
-  }
   pn_transport_bind(transport, connection);
   pn_decref(transport);
   pn_connection_ctx_t *ctx = (pn_connection_ctx_t *) pn_connection_get_context(connection);

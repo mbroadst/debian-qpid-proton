@@ -20,9 +20,7 @@ package org.apache.qpid.proton.message;
  *
 */
 
-/**
- * @deprecated This enum will be removed in a future release.
- */
+
 public enum MessageFormat
 {
     DATA,

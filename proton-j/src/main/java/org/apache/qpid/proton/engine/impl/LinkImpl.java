@@ -21,14 +21,13 @@
 package org.apache.qpid.proton.engine.impl;
 
 import java.util.EnumSet;
-
 import org.apache.qpid.proton.amqp.transport.ReceiverSettleMode;
 import org.apache.qpid.proton.amqp.transport.SenderSettleMode;
+import org.apache.qpid.proton.engine.EndpointState;
+import org.apache.qpid.proton.engine.Link;
 import org.apache.qpid.proton.amqp.transport.Source;
 import org.apache.qpid.proton.amqp.transport.Target;
-import org.apache.qpid.proton.engine.EndpointState;
 import org.apache.qpid.proton.engine.Event;
-import org.apache.qpid.proton.engine.Link;
 
 public abstract class LinkImpl extends EndpointImpl implements Link
 {
@@ -69,19 +68,16 @@ public abstract class LinkImpl extends EndpointImpl implements Link
     }
 
 
-    @Override
     public String getName()
     {
         return _name;
     }
 
-    @Override
     public DeliveryImpl delivery(byte[] tag)
     {
         return delivery(tag, 0, tag.length);
     }
 
-    @Override
     public DeliveryImpl delivery(byte[] tag, int offset, int length)
     {
         if (offset != 0 || length != tag.length)
@@ -150,13 +146,11 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         }
     }
 
-    @Override
     public DeliveryImpl current()
     {
         return _current;
     }
 
-    @Override
     public boolean advance()
     {
         if(_current != null )
@@ -184,13 +178,11 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         return _session.getConnectionImpl();
     }
 
-    @Override
     public SessionImpl getSession()
     {
         return _session;
     }
 
-    @Override
     public Source getRemoteSource()
     {
         return _remoteSource;
@@ -201,7 +193,6 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         _remoteSource = source;
     }
 
-    @Override
     public Target getRemoteTarget()
     {
         return _remoteTarget;
@@ -212,33 +203,28 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         _remoteTarget = target;
     }
 
-    @Override
     public Source getSource()
     {
         return _source;
     }
 
-    @Override
     public void setSource(Source source)
     {
         // TODO - should be an error if local state is ACTIVE
         _source = source;
     }
 
-    @Override
     public Target getTarget()
     {
         return _target;
     }
 
-    @Override
     public void setTarget(Target target)
     {
         // TODO - should be an error if local state is ACTIVE
         _target = target;
     }
 
-    @Override
     public Link next(EnumSet<EndpointState> local, EnumSet<EndpointState> remote)
     {
         LinkNode.Query<LinkImpl> query = new EndpointImplQuery<LinkImpl>(local, remote);
@@ -251,7 +237,6 @@ public abstract class LinkImpl extends EndpointImpl implements Link
 
     abstract TransportLink getTransportLink();
 
-    @Override
     public int getCredit()
     {
         return _credit;
@@ -282,7 +267,6 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         _credit--;
     }
 
-    @Override
     public int getQueued()
     {
         return _queued;
@@ -298,7 +282,6 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         _queued--;
     }
 
-    @Override
     public int getUnsettled()
     {
         return _unsettled;
@@ -319,7 +302,6 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         _drain = drain;
     }
 
-    @Override
     public boolean getDrain()
     {
         return _drain;
@@ -372,7 +354,6 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         _remoteReceiverSettleMode = remoteReceiverSettleMode;
     }
 
-    @Override
     public int drained()
     {
         int drained = 0;
@@ -403,13 +384,11 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         _drained = value;
     }
 
-    @Override
     public int getRemoteCredit()
     {
         return _credit - _queued;
     }
 
-    @Override
     public DeliveryImpl head()
     {
         return _head;
@@ -427,7 +406,6 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         getConnectionImpl().put(Event.Type.LINK_LOCAL_CLOSE, this);
     }
 
-    @Override
     public void detach()
     {
         _detached = true;
@@ -435,7 +413,7 @@ public abstract class LinkImpl extends EndpointImpl implements Link
         modified();
     }
 
-    public boolean detached()
+    boolean detached()
     {
         return _detached;
     }

@@ -35,11 +35,9 @@ struct pn_error_t {
 pn_error_t *pn_error()
 {
   pn_error_t *error = (pn_error_t *) malloc(sizeof(pn_error_t));
-  if (error != NULL) {
-    error->code = 0;
-    error->text = NULL;
-    error->root = NULL;
-  }
+  error->code = 0;
+  error->text = NULL;
+  error->root = NULL;
   return error;
 }
 
@@ -129,7 +127,6 @@ const char *pn_code(int code)
   case PN_ARG_ERR: return "PN_ARG_ERR";
   case PN_TIMEOUT: return "PN_TIMEOUT";
   case PN_INTR: return "PN_INTR";
-  case PN_OUT_OF_MEMORY: return "PN_OUT_OF_MEMORY";
   default: return "<unknown>";
   }
 }

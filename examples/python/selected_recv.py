@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 from proton.reactor import Container, Selector
 from proton.handlers import MessagingHandler
 
@@ -28,10 +27,10 @@ class Recv(MessagingHandler):
 
     def on_start(self, event):
         conn = event.container.connect("localhost:5672")
-        event.container.create_receiver(conn, "examples", options=Selector("colour = 'green'"))
+        event.container.create_receiver(conn, "examples", options=Selector(u"colour = 'green'"))
 
     def on_message(self, event):
-        print(event.message.body)
+        print event.message.body
 
 try:
     Container(Recv()).run()

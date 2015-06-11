@@ -22,6 +22,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
 #include <proton/type_compat.h>
 #include <ctype.h>
 #include <string.h>
@@ -212,32 +213,29 @@ void pni_fatal(const char *fmt, ...)
   va_end(ap);
 }
 
-int pn_strcasecmp(const char *a, const char *b)
+bool pni_eq_nocase(const char *a, const char *b)
 {
-  int diff;
-  while (*b) {
-    diff = tolower(*a++)-tolower(*b++);
-    if ( diff!=0 ) return diff;
-  }
-  return *a;
+    while (*b) {
+        if (tolower(*a++) != tolower(*b++))
+            return false;
+    }
+    return !(*a);
 }
 
-int pn_strncasecmp(const char* a, const char* b, size_t len)
+bool pni_eq_n_nocase(const char *a, const char *b, int len)
 {
-  int diff = 0;
-  while (*b && len > 0) {
-    diff = tolower(*a++)-tolower(*b++);
-    if ( diff!=0 ) return diff;
-    --len;
-  };
-  return len==0 ? diff : *a;
+  while (*b && len-- > 0 ) {
+    if (tolower(*a++) != tolower(*b++))
+      return false;
+  }
+  return !(*a) && !(*b);
 }
 
 bool pn_env_bool(const char *name)
 {
   char *v = getenv(name);
-  return v && (!pn_strcasecmp(v, "true") || !pn_strcasecmp(v, "1") ||
-               !pn_strcasecmp(v, "yes")  || !pn_strcasecmp(v, "on"));
+  return v && (pni_eq_nocase(v, "true") || pni_eq_nocase(v, "1") ||
+               pni_eq_nocase(v, "yes") || pni_eq_nocase(v, "on"));
 }
 
 char *pn_strdup(const char *src)

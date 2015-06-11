@@ -27,7 +27,7 @@
   <parent>
     <groupId>org.apache.qpid</groupId>
     <artifactId>proton-project</artifactId>
-    <version>0.10</version>
+    <version>0.9</version>
   </parent>
 
   <description>The Proton system tests execute against either the Java or the C implementations,
@@ -69,7 +69,6 @@ directory &lt;basedir&gt;/build/proton-c.</description>
             <protonJythonIgnoreFile>${basedir}/java/pythonTests.ignore</protonJythonIgnoreFile>
             <protonJythonTestRoot>${basedir}/python</protonJythonTestRoot>
             <protonJythonBinding>${basedir}/../proton-c/bindings/python</protonJythonBinding>
-            <protonJythonShim>${basedir}/../proton-j/src/main/resources</protonJythonShim>
             <protonJythonTestScript>${basedir}/python/proton-test</protonJythonTestScript>
             <protonJythonTestXmlOutputDirectory>${testReportOutputDirectory}</protonJythonTestXmlOutputDirectory>
             <java.util.logging.config.file>${project.build.outputDirectory}/logging.properties</java.util.logging.config.file>

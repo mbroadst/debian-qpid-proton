@@ -22,7 +22,7 @@ module Qpid
   module Proton
 
     class ExceptionHandlingClass
-      include Qpid::Proton::Util::ErrorHandler
+      include Qpid::Proton::ExceptionHandling
 
       def error
         "This is a test error: #{Time.new}"

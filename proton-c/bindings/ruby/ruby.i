@@ -28,6 +28,8 @@
 #include <proton/url.h>
 #include <proton/reactor.h>
 #include <proton/handlers.h>
+
+#include <uuid/uuid.h>
 %}
 
 %include <cstring.i>
@@ -271,20 +273,6 @@ ssize_t pn_transport_input(pn_transport_t *transport, char *STRING, size_t LENGT
 %}
 %ignore pn_transport_output;
 
-%rename(pn_transport_peek) wrap_pn_transport_peek;
-%inline %{
-  int wrap_pn_transport_peek(pn_transport_t *transport, char *OUTPUT, size_t *OUTPUT_SIZE) {
-    ssize_t sz = pn_transport_peek(transport, OUTPUT, *OUTPUT_SIZE);
-    if(sz >= 0) {
-      *OUTPUT_SIZE = sz;
-    } else {
-      *OUTPUT_SIZE = 0;
-    }
-    return sz;
-  }
-%}
-%ignore pn_transport_peek;
-
 %rename(pn_delivery) wrap_pn_delivery;
 %inline %{
   pn_delivery_t *wrap_pn_delivery(pn_link_t *link, char *STRING, size_t LENGTH) {
@@ -462,152 +450,5 @@ bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZ
 %ignore pn_messenger_send;
 %ignore pn_messenger_recv;
 %ignore pn_messenger_work;
-
-%inline %{
-
-#define CID_Pn_rbkey CID_pn_void
-
-typedef struct {
-  void *registry;
-  char *method;
-  char *key_value;
-} Pn_rbkey_t;
-
-void Pn_rbkey_initialize(Pn_rbkey_t *rbkey) {
-  assert(rbkey);
-  rbkey->registry = NULL;
-  rbkey->method = NULL;
-  rbkey->key_value = NULL;
-}
-
-void Pn_rbkey_finalize(Pn_rbkey_t *rbkey) {
-  if(rbkey && rbkey->registry && rbkey->method && rbkey->key_value) {
-    rb_funcall((VALUE )rbkey->registry, rb_intern(rbkey->method), 1, rb_str_new2(rbkey->key_value));
-  }
-  if(rbkey->key_value) {
-    free(rbkey->key_value);
-    rbkey->key_value = NULL;
-  }
-}
-
-#define Pn_rbkey_inspect NULL
-#define Pn_rbkey_compare NULL
-#define Pn_rbkey_hashcode NULL
-
-PN_CLASSDEF(Pn_rbkey)
-
-void Pn_rbkey_set_registry(Pn_rbkey_t *rbkey, void *registry) {
-  assert(rbkey);
-  rbkey->registry = registry;
-}
-
-void *Pn_rbkey_get_registry(Pn_rbkey_t *rbkey) {
-  assert(rbkey);
-  return rbkey->registry;
-}
-
-void Pn_rbkey_set_method(Pn_rbkey_t *rbkey, char *method) {
-  assert(rbkey);
-  rbkey->method = method;
-}
-
-char *Pn_rbkey_get_method(Pn_rbkey_t *rbkey) {
-  assert(rbkey);
-  return rbkey->method;
-}
-
-void Pn_rbkey_set_key_value(Pn_rbkey_t *rbkey, char *key_value) {
-  assert(rbkey);
-  rbkey->key_value = malloc(strlen(key_value) + 1);
-  strncpy(rbkey->key_value, key_value, strlen(key_value) + 1);
-}
-
-char *Pn_rbkey_get_key_value(Pn_rbkey_t *rbkey) {
-  assert(rbkey);
-  return rbkey->key_value;
-}
-
-Pn_rbkey_t *pni_void2rbkey(void *object) {
-  return (Pn_rbkey_t *)object;
-}
-
-VALUE pn_void2rb(void *object) {
-  return (VALUE )object;
-}
-
-void *pn_rb2void(VALUE object) {
-  return (void *)object;
-}
-
-VALUE pni_address_of(void *object) {
-  return ULL2NUM((unsigned long )object);
-}
-
-%}
-
-//%rename(pn_collector_put) wrap_pn_collector_put;
-//%inline %{
-//  pn_event_t *wrap_pn_collector_put(pn_collector_t *collector, void *context,
-//                               pn_event_type_t type) {
-//    return pn_collector_put(collector, PN_RBREF, context, type);
-//  }
-//  %}
-//%ignore pn_collector_put;
-
-int pn_ssl_get_peer_hostname(pn_ssl_t *ssl, char *OUTPUT, size_t *OUTPUT_SIZE);
-%ignore pn_ssl_get_peer_hostname;
-
-%inline %{
-
-  VALUE pni_ruby_get_proton_module() {
-    VALUE mQpid = rb_define_module("Qpid");
-    return rb_define_module_under(mQpid, "Proton");
-  }
-
-  void pni_ruby_add_to_registry(VALUE key, VALUE value) {
-    VALUE result = rb_funcall(pni_ruby_get_proton_module(), rb_intern("add_to_registry"), 2, key, value);
-  }
-
-  VALUE pni_ruby_get_from_registry(VALUE key) {
-    rb_funcall(pni_ruby_get_proton_module(), rb_intern("get_from_registry"), 1, key);
-  }
-
-  void pni_ruby_delete_from_registry(VALUE stored_key) {
-    rb_funcall(pni_ruby_get_proton_module(), rb_intern("delete_from_registry"), 1, stored_key);
-  }
-
-  typedef struct {
-    VALUE handler_key;
-  } Pni_rbhandler_t;
-
-  static Pni_rbhandler_t *pni_rbhandler(pn_handler_t *handler) {
-    return (Pni_rbhandler_t *) pn_handler_mem(handler);
-  }
-
-  static void pni_rbdispatch(pn_handler_t *handler, pn_event_t *event, pn_event_type_t type) {
-    Pni_rbhandler_t *rbh = pni_rbhandler(handler);
-    VALUE rbhandler = pni_ruby_get_from_registry(rbh->handler_key);
-
-    rb_funcall(rbhandler, rb_intern("dispatch"), 2, SWIG_NewPointerObj(event, SWIGTYPE_p_pn_event_t, 0), INT2FIX(type));
-  }
-
-  static void pni_rbhandler_finalize(pn_handler_t *handler) {
-    Pni_rbhandler_t *rbh = pni_rbhandler(handler);
-    pni_ruby_delete_from_registry(rbh->handler_key);
-  }
-
-  pn_handler_t *pn_rbhandler(VALUE handler) {
-    pn_handler_t *chandler = pn_handler_new(pni_rbdispatch, sizeof(Pni_rbhandler_t), pni_rbhandler_finalize);
-    Pni_rbhandler_t *rhy = pni_rbhandler(chandler);
-
-    VALUE ruby_key = rb_class_new_instance(0, NULL, rb_cObject);
-    pni_ruby_add_to_registry(ruby_key, handler);
-
-    rhy->handler_key = ruby_key;
-
-    return chandler;
-  }
-
-%}
 
 %include "proton/cproton.i"

@@ -29,6 +29,7 @@
 #include <proton/types.h>
 #include <proton/object.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {

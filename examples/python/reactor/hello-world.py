@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 from proton.reactor import Reactor
 
 # The proton reactor provides a general purpose event processing
@@ -32,7 +31,7 @@ class Program:
     # The reactor init event is produced by the reactor itself when it
     # starts.
     def on_reactor_init(self, event):
-        print("Hello, World!")
+        print "Hello, World!"
 
 # When you construct a reactor, you give it a handler.
 r = Reactor(Program())

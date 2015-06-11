@@ -117,18 +117,16 @@ pni_stream_t *pni_stream(pni_store_t *store, const char *address, bool create)
 
   if (create) {
     stream = (pni_stream_t *) malloc(sizeof(pni_stream_t));
-    if (stream != NULL) {
-      stream->store = store;
-      stream->address = pn_string(address);
-      stream->stream_head = NULL;
-      stream->stream_tail = NULL;
-      stream->next = NULL;
+    stream->store = store;
+    stream->address = pn_string(address);
+    stream->stream_head = NULL;
+    stream->stream_tail = NULL;
+    stream->next = NULL;
 
-      if (prev) {
-        prev->next = stream;
-      } else {
-        store->streams = stream;
-      }
+    if (prev) {
+      prev->next = stream;
+    } else {
+      store->streams = stream;
     }
   }
 

@@ -1,8 +1,8 @@
-qpid-proton (0.10-1precise+qpid1) precise; urgency=medium
+qpid-proton (0.9-2qpid+precise1) precise; urgency=low
 
-  * Rebased on Proton 0.10
+  * Bump release to push to the Qpid testing PPA.
 
- -- Matt Broadstone <mbroadst@gmail.com>  Fri, 28 Aug 2015 08:54:47 -0400
+ -- Darryl L. Pierce <dpierce@redhat.com>  Thu, 11 Jun 2015 09:12:28 -0400
 
 qpid-proton (0.9-1precise+mcpierce1) precise; urgency=low
 
@@ -18,7 +18,7 @@ qpid-proton (0.7-8precise+mcpierce1) precise; urgency=low
 
 qpid-proton (0.7-7precise+mcpierce1) precise; urgency=low
 
-  * Fix FTBFS for on Jessie.
+  * Fix FTBFS for on Jessie. 
   * Removed dependency on libsslcommon2, replaced it with libssl-dev.
 
  -- Darryl L. Pierce <mcpierce@gmail.com>  Mon, 10 Nov 2014 16:28:20 -0500
@@ -26,17 +26,18 @@ qpid-proton (0.7-7precise+mcpierce1) precise; urgency=low
 qpid-proton (0.7-6precise+mcpierce1) precise; urgency=low
 
   * Added package control statements to handle any name conflicts for -dev.
+  * Fixed linking against libuuid and librt.
 
  -- Darryl L. Pierce <mcpierce@gmail.com>  Thu, 04 Sep 2014 18:36:35 -0400
 
-qpid-proton (0.7-5precise+mcpierce1) precise; urgency=low
+qpid-proton (0.7-5) unstable; urgency=low
 
   * Added CMake files to libqpid-proton-dev.
   * Added pkg-config files to libqpid-proton-dev.
 
  -- Darryl L. Pierce <mcpierce@gmail.com>  Thu, 04 Sep 2014 11:07:38 -0400
 
-qpid-proton (0.7-4precise+mcpierce1) precise; urgency=medium
+qpid-proton (0.7-4) unstable; urgency=medium
 
   * Bumped the release number.
 
@@ -73,7 +74,7 @@ qpid-proton (0.7-1.1) unstable; urgency=low
   * Added the qpid-proton-dump package.
   * Added a Debian watch file.
   * Fixed license for free getopt code from Mark Kim.
-  * Fixed the sections for packages.
+  * Fixed the sections for packages. 
 
  -- Darryl Pierce <mcpierce@gmail.com>  Fri, 09 May 2014 07:59:57 -0400
 

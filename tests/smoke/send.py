@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-from __future__ import print_function
 import sys
 from proton import *
 
@@ -18,7 +17,7 @@ message.body = u"Hello World!"
 
 messenger.start()
 tracker = messenger.put(message)
-print("Put: %s" % message)
+print "Put: %s" % message
 messenger.send()
-print("Status: %s" % messenger.status(tracker))
+print "Status: %s" % messenger.status(tracker)
 messenger.stop()

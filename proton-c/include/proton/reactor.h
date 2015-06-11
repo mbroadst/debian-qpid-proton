@@ -26,7 +26,6 @@
 #include <proton/type_compat.h>
 #include <proton/event.h>
 #include <proton/selectable.h>
-#include <proton/ssl.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,7 +85,6 @@ PN_EXTERN void pn_reactor_run(pn_reactor_t *reactor);
 PN_EXTERN pn_task_t *pn_reactor_schedule(pn_reactor_t *reactor, int delay, pn_handler_t *handler);
 
 
-PN_EXTERN void pn_acceptor_set_ssl_domain(pn_acceptor_t *acceptor, pn_ssl_domain_t *domain);
 PN_EXTERN void pn_acceptor_close(pn_acceptor_t *acceptor);
 
 PN_EXTERN pn_timer_t *pn_timer(pn_collector_t *collector);
@@ -96,7 +94,6 @@ PN_EXTERN pn_task_t *pn_timer_schedule(pn_timer_t *timer, pn_timestamp_t deadlin
 PN_EXTERN int pn_timer_tasks(pn_timer_t *timer);
 
 PN_EXTERN pn_record_t *pn_task_attachments(pn_task_t *task);
-PN_EXTERN void pn_task_cancel(pn_task_t *task);
 
 PN_EXTERN pn_reactor_t *pn_class_reactor(const pn_class_t *clazz, void *object);
 PN_EXTERN pn_reactor_t *pn_object_reactor(void *object);

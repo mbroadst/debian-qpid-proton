@@ -24,13 +24,8 @@ Simple DOM for both SGML and XML documents.
 from __future__ import division
 from __future__ import generators
 from __future__ import nested_scopes
-from __future__ import absolute_import
 
-import sys
-if sys.version_info[0] == 2:
-    STRING_TYPES = (basestring,)
-else:
-    STRING_TYPES = (str,)
+import transforms
 
 class Container:
 
@@ -114,7 +109,6 @@ class Node(Container, Component, Dispatcher):
       return nd
 
   def text(self):
-    from . import transforms
     return self.dispatch(transforms.Text())
 
   def tag(self, name, *attrs, **kwargs):
@@ -183,7 +177,7 @@ class Leaf(Component, Dispatcher):
   base = None
 
   def __init__(self, data):
-    assert isinstance(data, STRING_TYPES)
+    assert isinstance(data, basestring)
     self.data = data
 
 class Data(Leaf):
@@ -244,7 +238,7 @@ class Flatten(View):
     sources = [iter(self.source)]
     while sources:
       try:
-        nd = next(sources[-1])
+        nd = sources[-1].next()
         if isinstance(nd, Tree):
           sources.append(iter(nd.children))
         else:
@@ -273,7 +267,7 @@ class Values(View):
       yield value
 
 def flatten_path(path):
-  if isinstance(path, STRING_TYPES):
+  if isinstance(path, basestring):
     for part in path.split("/"):
       yield part
   elif callable(path):
@@ -296,7 +290,7 @@ class Query(View):
         select = Query
         pred = p
         source = query
-      elif isinstance(p, STRING_TYPES):
+      elif isinstance(p, basestring):
         if p[0] == "@":
           select = Values
           pred = lambda x, n=p[1:]: x[0] == n

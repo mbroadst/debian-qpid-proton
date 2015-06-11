@@ -18,7 +18,7 @@
 #
 from org.apache.qpid.proton.engine import Sasl
 
-from compat import array, zeros
+from jarray import array, zeros
 
 from cerror import *
 
@@ -29,9 +29,13 @@ PN_SASL_AUTH=1
 PN_SASL_SYS=2
 PN_SASL_PERM=3
 PN_SASL_TEMP=4
+PN_SASL_SKIPPED=5
 
-def pn_sasl_extended():
-  return False
+PN_SASL_CONF = 0
+PN_SASL_IDLE = 1
+PN_SASL_STEP = 2
+PN_SASL_PASS = 3
+PN_SASL_FAIL = 4
 
 def pn_sasl(tp):
   sasl = tp.impl.sasl()
@@ -41,6 +45,13 @@ def pn_sasl(tp):
     sasl.client()
   return sasl
 
+SASL_STATES = {
+  Sasl.SaslState.PN_SASL_IDLE: PN_SASL_IDLE,
+  Sasl.SaslState.PN_SASL_STEP: PN_SASL_STEP,
+  Sasl.SaslState.PN_SASL_PASS: PN_SASL_PASS,
+  Sasl.SaslState.PN_SASL_FAIL: PN_SASL_FAIL
+  }
+
 SASL_OUTCOMES_P2J = {
   PN_SASL_NONE: Sasl.PN_SASL_NONE,
   PN_SASL_OK: Sasl.PN_SASL_OK,
@@ -48,6 +59,7 @@ SASL_OUTCOMES_P2J = {
   PN_SASL_SYS: Sasl.PN_SASL_SYS,
   PN_SASL_PERM: Sasl.PN_SASL_PERM,
   PN_SASL_TEMP: Sasl.PN_SASL_TEMP,
+  PN_SASL_SKIPPED: Sasl.PN_SASL_SKIPPED
 }
 
 SASL_OUTCOMES_J2P = {
@@ -57,35 +69,43 @@ SASL_OUTCOMES_J2P = {
   Sasl.PN_SASL_SYS: PN_SASL_SYS,
   Sasl.PN_SASL_PERM: PN_SASL_PERM,
   Sasl.PN_SASL_TEMP: PN_SASL_TEMP,
+  Sasl.PN_SASL_SKIPPED: PN_SASL_SKIPPED
 }
 
-def pn_transport_require_auth(transport, require):
-  raise Skipped('Not supported in Proton-J')
+def pn_sasl_client(sasl):
+  sasl.client()
 
-# TODO: Placeholders
-def pn_transport_is_authenticated(transport):
-  raise Skipped('Not supported in Proton-J')
+def pn_sasl_server(sasl):
+  sasl.server()
 
-def pn_transport_is_encrypted(transport):
-  raise Skipped('Not supported in Proton-J')
+def pn_sasl_state(sasl):
+  return SASL_STATES[sasl.getState()]
 
-def pn_transport_get_user(transport):
-  raise Skipped('Not supported in Proton-J')
-
-def pn_connection_set_user(connection, user):
-  pass
-
-def pn_connection_set_password(connection, password):
-  pass
-
-def pn_sasl_allowed_mechs(sasl, mechs):
+def pn_sasl_mechanisms(sasl, mechs):
   sasl.setMechanisms(*mechs.split())
 
-def pn_sasl_set_allow_insecure_mechs(sasl, insecure):
-  raise Skipped('Not supported in Proton-J')
+def pn_sasl_allow_skip(sasl, allow):
+  sasl.allowSkip(allow)
 
 def pn_sasl_done(sasl, outcome):
   sasl.done(SASL_OUTCOMES_P2J[outcome])
 
 def pn_sasl_outcome(sasl):
   return SASL_OUTCOMES_J2P[sasl.getOutcome()]
+
+def pn_sasl_plain(sasl, user, password):
+  sasl.plain(user, password)
+
+def pn_sasl_recv(sasl, size):
+  if size < sasl.pending():
+    return PN_OVERFLOW, None
+  else:
+    ba = zeros(size, 'b')
+    n = sasl.recv(ba, 0, size)
+    if n >= 0:
+      return n, ba[:n].tostring()
+    else:
+      return n, None
+
+def pn_sasl_send(sasl, data, size):
+  return sasl.send(array(data, 'b'), 0, size)

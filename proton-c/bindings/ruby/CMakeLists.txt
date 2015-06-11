@@ -68,27 +68,6 @@ install(TARGETS cproton-ruby
 install(FILES lib/qpid_proton.rb
         DESTINATION ${RUBY_ARCHLIB_DIR}
         COMPONENT Ruby)
-install(DIRECTORY lib/codec
-        DESTINATION ${RUBY_ARCHLIB_DIR}
-        COMPONENT Ruby)
-install(DIRECTORY lib/core
-        DESTINATION ${RUBY_ARCHLIB_DIR}
-        COMPONENT Ruby)
-install(DIRECTORY lib/event
-        DESTINATION ${RUBY_ARCHLIB_DIR}
-        COMPONENT Ruby)
-install(DIRECTORY lib/handler
-        DESTINATION ${RUBY_ARCHLIB_DIR}
-        COMPONENT Ruby)
-install(DIRECTORY lib/messenger
-        DESTINATION ${RUBY_ARCHLIB_DIR}
-        COMPONENT Ruby)
-install(DIRECTORY lib/reactor
-        DESTINATION ${RUBY_ARCHLIB_DIR}
-        COMPONENT Ruby)
-install(DIRECTORY lib/types
-        DESTINATION ${RUBY_ARCHLIB_DIR}
-        COMPONENT Ruby)
-install(DIRECTORY lib/util
+install(DIRECTORY lib/qpid_proton
         DESTINATION ${RUBY_ARCHLIB_DIR}
         COMPONENT Ruby)

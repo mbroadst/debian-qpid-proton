@@ -17,7 +17,6 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from __future__ import print_function
 import sys, optparse
 from proton import *
 
@@ -49,8 +48,8 @@ if opts.reply_to[:2] == "~/":
   mng.recv(1)
   try:
     mng.get(msg)
-    print(msg.address, msg.subject)
-  except Exception as e:
-    print(e)
+    print msg.address, msg.subject
+  except Exception, e:
+    print e
 
 mng.stop()

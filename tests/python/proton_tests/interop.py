@@ -18,9 +18,7 @@
 #
 
 from proton import *
-import os
-from . import common
-from proton._compat import str2bin
+import os, common
 
 
 def find_test_interop_dir():
@@ -56,13 +54,7 @@ class InteropTest(common.Test):
             buffer = buffer[n:]
         self.data.rewind()
 
-    def decode_data_file(self, name):
-        encoded = self.get_data(name)
-        self.decode_data(encoded)
-        encoded_size = self.data.encoded_size()
-        # Re-encode and verify pre-computed and actual encoded size match.
-        reencoded = self.data.encode()
-        assert encoded_size == len(reencoded), "%d != %d" % (encoded_size, len(reencoded))
+    def decode_data_file(self, name): self.decode_data(self.get_data(name))
 
     def decode_message_file(self, name):
         self.message.decode(self.get_data(name))
@@ -100,10 +92,10 @@ class InteropTest(common.Test):
 
     def test_strings(self):
         self.decode_data_file("strings")
-        self.assert_next(Data.BINARY, str2bin("abc\0defg"))
+        self.assert_next(Data.BINARY, "abc\0defg")
         self.assert_next(Data.STRING, "abcdefg")
         self.assert_next(Data.SYMBOL, "abcdefg")
-        self.assert_next(Data.BINARY, str2bin(""))
+        self.assert_next(Data.BINARY, "")
         self.assert_next(Data.STRING, "")
         self.assert_next(Data.SYMBOL, "")
         assert self.data.next() is None

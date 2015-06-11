@@ -64,7 +64,7 @@ void pn_io_finalize(void *obj)
 
 #define pn_io_hashcode NULL
 #define pn_io_compare NULL
-#define pn_io_inspect NULL
+#define pn_io_inspect
 
 pn_io_t *pn_io(void)
 {
@@ -135,7 +135,6 @@ pn_socket_t pn_listen(pn_io_t *io, const char *host, const char *port)
 
   pn_socket_t sock = pn_create_socket(addr->ai_family);
   if (sock == PN_INVALID_SOCKET) {
-    freeaddrinfo(addr);
     pn_i_error_from_errno(io->error, "pn_create_socket");
     return PN_INVALID_SOCKET;
   }
@@ -143,7 +142,6 @@ pn_socket_t pn_listen(pn_io_t *io, const char *host, const char *port)
   int optval = 1;
   if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
     pn_i_error_from_errno(io->error, "setsockopt");
-    freeaddrinfo(addr);
     close(sock);
     return PN_INVALID_SOCKET;
   }
@@ -178,7 +176,6 @@ pn_socket_t pn_connect(pn_io_t *io, const char *host, const char *port)
   pn_socket_t sock = pn_create_socket(addr->ai_family);
   if (sock == PN_INVALID_SOCKET) {
     pn_i_error_from_errno(io->error, "pn_create_socket");
-    freeaddrinfo(addr);
     return PN_INVALID_SOCKET;
   }
 

@@ -189,11 +189,11 @@ static inline pn_type_t pn_code2type(uint8_t code)
   }
 }
 
-static int pni_decoder_decode_type(pn_decoder_t *decoder, pn_data_t *data, uint8_t *code);
-static int pni_decoder_single(pn_decoder_t *decoder, pn_data_t *data);
+int pn_decoder_decode_type(pn_decoder_t *decoder, pn_data_t *data, uint8_t *code);
+int pn_decoder_single(pn_decoder_t *decoder, pn_data_t *data);
 void pni_data_set_array_type(pn_data_t *data, pn_type_t type);
 
-static int pni_decoder_decode_value(pn_decoder_t *decoder, pn_data_t *data, uint8_t code)
+int pn_decoder_decode_value(pn_decoder_t *decoder, pn_data_t *data, uint8_t code)
 {
   int err;
   conv_t conv;
@@ -392,13 +392,13 @@ static int pni_decoder_decode_value(pn_decoder_t *decoder, pn_data_t *data, uint
 
         pn_data_enter(data);
         uint8_t acode;
-        int e = pni_decoder_decode_type(decoder, data, &acode);
+        int e = pn_decoder_decode_type(decoder, data, &acode);
         if (e) return e;
         pn_type_t type = pn_code2type(acode);
         if ((int)type < 0) return (int)type;
         for (size_t i = 0; i < count; i++)
         {
-          e = pni_decoder_decode_value(decoder, data, acode);
+          e = pn_decoder_decode_value(decoder, data, acode);
           if (e) return e;
         }
         pn_data_exit(data);
@@ -423,7 +423,7 @@ static int pni_decoder_decode_value(pn_decoder_t *decoder, pn_data_t *data, uint
     pn_data_enter(data);
     for (size_t i = 0; i < count; i++)
     {
-      int e = pni_decoder_single(decoder, data);
+      int e = pn_decoder_single(decoder, data);
       if (e) return e;
     }
     pn_data_exit(data);
@@ -438,7 +438,7 @@ static int pni_decoder_decode_value(pn_decoder_t *decoder, pn_data_t *data, uint
 
 pn_type_t pni_data_parent_type(pn_data_t *data);
 
-static int pni_decoder_decode_type(pn_decoder_t *decoder, pn_data_t *data, uint8_t *code)
+int pn_decoder_decode_type(pn_decoder_t *decoder, pn_data_t *data, uint8_t *code)
 {
   int err;
 
@@ -452,12 +452,12 @@ static int pni_decoder_decode_type(pn_decoder_t *decoder, pn_data_t *data, uint8
     if (pni_data_parent_type(data) != PN_ARRAY) {
       err = pn_data_put_described(data);
       if (err) return err;
-      // pni_decoder_single has the corresponding exit
+      // pn_decoder_single has the corresponding exit
       pn_data_enter(data);
     }
-    err = pni_decoder_single(decoder, data);
+    err = pn_decoder_single(decoder, data);
     if (err) return err;
-    err = pni_decoder_decode_type(decoder, data, code);
+    err = pn_decoder_decode_type(decoder, data, code);
     if (err) return err;
   } else {
     *code = next;
@@ -468,12 +468,12 @@ static int pni_decoder_decode_type(pn_decoder_t *decoder, pn_data_t *data, uint8
 
 size_t pn_data_siblings(pn_data_t *data);
 
-int pni_decoder_single(pn_decoder_t *decoder, pn_data_t *data)
+int pn_decoder_single(pn_decoder_t *decoder, pn_data_t *data)
 {
   uint8_t code;
-  int err = pni_decoder_decode_type(decoder, data, &code);
+  int err = pn_decoder_decode_type(decoder, data, &code);
   if (err) return err;
-  err = pni_decoder_decode_value(decoder, data, code);
+  err = pn_decoder_decode_value(decoder, data, code);
   if (err) return err;
   if (pni_data_parent_type(data) == PN_DESCRIBED && pn_data_siblings(data) > 1) {
     pn_data_exit(data);
@@ -487,10 +487,7 @@ ssize_t pn_decoder_decode(pn_decoder_t *decoder, const char *src, size_t size, p
   decoder->size = size;
   decoder->position = src;
 
-  int err = pni_decoder_single(decoder, dst);
-
-  if (err == PN_UNDERFLOW) 
-      return pn_error_format(pn_data_error(dst), PN_UNDERFLOW, "not enough data to decode");
+  int err = pn_decoder_single(decoder, dst);
   if (err) return err;
 
   return decoder->position - decoder->input;

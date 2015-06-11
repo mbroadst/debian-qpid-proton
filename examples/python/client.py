@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 import optparse
 from proton import Message
 from proton.handlers import MessagingHandler
@@ -44,7 +43,7 @@ class Client(MessagingHandler):
             self.next_request()
 
     def on_message(self, event):
-        print("%s => %s" % (self.requests.pop(0), event.message.body))
+        print "%s => %s" % (self.requests.pop(0), event.message.body)
         if self.requests:
             self.next_request()
         else:

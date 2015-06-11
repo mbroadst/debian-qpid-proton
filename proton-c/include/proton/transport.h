@@ -26,6 +26,7 @@
 #include <proton/type_compat.h>
 #include <proton/condition.h>
 #include <stddef.h>
+#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -119,73 +120,6 @@ PN_EXTERN void pn_transport_set_server(pn_transport_t *transport);
  * @param[in] transport a transport object or NULL
  */
 PN_EXTERN void pn_transport_free(pn_transport_t *transport);
-
-/** Retrieve the authenticated user
- *
- * This is usually used at the the server end to find the name of the authenticated user.
- * On the client it will merely return whatever user was passed in to the
- * pn_connection_set_user() API of the bound connection.
- *
- * The returned value is only reliable after the PN_TRANSPORT_AUTHENTICATED event has been received.
- *
- * @param[in] transport the transport
- *
- * @return
- * If a the user is anonymous (either no SASL layer is negotiated or the SASL ANONYMOUS mechanism is used)
- * then the user will be "anonymous"
- * Otherwise a string containing the user is returned.
- */
-PN_EXTERN const char *pn_transport_get_user(pn_transport_t *transport);
-
-/**
- * Set whether a non authenticated transport connection is allowed
- *
- * There are several ways within the AMQP protocol suite to get unauthenticated connections:
- * - Use no SASL layer (with either no TLS or TLS without client certificates)
- * - Use an SASL layer but the ANONYMOUS mechanism
- *
- * The default if this option is not set is to allow unauthenticated connections.
- *
- * @param[in] transport the transport
- * @param[in] required boolean is true when authenticated connections are required
- */
-PN_EXTERN void pn_transport_require_auth(pn_transport_t *transport, bool required);
-
-/**
- * Tell whether the transport connection is authenticated
- *
- * Note that this property may not be stable until the PN_CONNECTION_REMOTE_OPEN
- * event is received.
- *
- * @param[in] transport the transport
- * @return bool representing authentication
- */
-PN_EXTERN bool pn_transport_is_authenticated(pn_transport_t *transport);
-
-/**
- * Set whether a non encrypted transport connection is allowed
- *
- * There are several ways within the AMQP protocol suite to get encrypted connections:
- * - Use TLS/SSL
- * - Use an SASL with a mechanism that supports saecurity layers
- *
- * The default if this option is not set is to allow unencrypted connections.
- *
- * @param[in] transport the transport
- * @param[in] required boolean is true when encrypted connections are required
- */
-PN_EXTERN void pn_transport_require_encryption(pn_transport_t *transport, bool required);
-
-/**
- * Tell whether the transport connection is encrypted
- *
- * Note that this property may not be stable until the PN_CONNECTION_REMOTE_OPEN
- * event is received.
- *
- * @param[in] transport the transport
- * @return bool representing encryption
- */
-PN_EXTERN bool pn_transport_is_encrypted(pn_transport_t *transport);
 
 /**
  * Get additional information about the condition of the transport.
@@ -320,10 +254,6 @@ PN_EXTERN void pn_transport_logf(pn_transport_t *transport, const char *fmt, ...
 
 /**
  * Get the maximum allowed channel for a transport.
- * This will be the minimum of 
- *   1. limit imposed by this proton implementation
- *   2. limit imposed by remote peer
- *   3. limit imposed by this application, using pn_transport_set_channel_max()
  *
  * @param[in] transport a transport object
  * @return the maximum allowed channel
@@ -331,23 +261,12 @@ PN_EXTERN void pn_transport_logf(pn_transport_t *transport, const char *fmt, ...
 PN_EXTERN uint16_t pn_transport_get_channel_max(pn_transport_t *transport);
 
 /**
- * Set the maximum allowed channel number for a transport.
- * Note that this is the maximum channel number allowed, giving a 
- * valid channel number range of [0..channel_max]. Therefore the 
- * maximum number of simultaineously active channels will be 
- * channel_max plus 1.
- * You can call this function more than once to raise and lower
- * the limit your application imposes on max channels for this 
- * transport.  However, smaller limits may be imposed by this
- * library, or by the remote peer.
- * After the OPEN frame has been sent to the remote peer,
- * further calls to this function will have no effect.
+ * Set the maximum allowed channel for a transport.
  *
  * @param[in] transport a transport object
  * @param[in] channel_max the maximum allowed channel
- * @return PN_OK, or PN_STATE_ERR if it is too late to change channel_max
  */
-PN_EXTERN int pn_transport_set_channel_max(pn_transport_t *transport, uint16_t channel_max);
+PN_EXTERN void pn_transport_set_channel_max(pn_transport_t *transport, uint16_t channel_max);
 
 /**
  * Get the maximum allowed channel of a transport's remote peer.

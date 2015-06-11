@@ -22,32 +22,10 @@ from random import randint
 from threading import Thread
 from socket import socket, AF_INET, SOCK_STREAM
 from subprocess import Popen,PIPE,STDOUT
-import sys, os, string, subprocess
+import sys, os, string
 from proton import Connection, Transport, SASL, Endpoint, Delivery, SSL
 from proton.reactor import Container
 from proton.handlers import CHandshaker, CFlowController
-from string import Template
-
-if sys.version_info[0] == 2 and sys.version_info[1] < 6:
-    # this is for compatibility, apparently the version of jython we
-    # use doesn't have the next() builtin.
-    # we should remove this when we upgrade to a python 2.6+ compatible version
-    # of jython
-    #_DEF = object()  This causes the test loader to fail (why?)
-    class _dummy(): pass
-    _DEF = _dummy
-
-    def next(iter, default=_DEF):
-        try:
-            return iter.next()
-        except StopIteration:
-            if default is _DEF:
-                raise
-            else:
-                return default
-    # I may goto hell for this:
-    import __builtin__
-    __builtin__.__dict__['next'] = next
 
 
 def free_tcp_ports(count=1):
@@ -89,9 +67,9 @@ def pump_uni(src, dst, buffer_size=1024):
   elif p == 0 or c == 0:
     return False
   else:
-    binary = src.peek(min(c, buffer_size))
-    dst.push(binary)
-    src.pop(len(binary))
+    bytes = src.peek(min(c, buffer_size))
+    dst.push(bytes)
+    src.pop(len(bytes))
 
   return True
 
@@ -107,45 +85,6 @@ def pump(transport1, transport2, buffer_size=1024):
 
 def isSSLPresent():
     return SSL.present()
-
-createdSASLDb = False
-
-def _cyrusSetup(conf_dir):
-  """Write out simple SASL config.
-  """
-  saslpasswd = ""
-  if 'SASLPASSWD' in os.environ:
-    saslpasswd = os.environ['SASLPASSWD']
-  if os.path.exists(saslpasswd):
-    t = Template("""sasldb_path: ${db}
-mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
-""")
-    abs_conf_dir = os.path.abspath(conf_dir)
-    subprocess.call(args=['rm','-rf',abs_conf_dir])
-    os.mkdir(abs_conf_dir)
-    db = os.path.join(abs_conf_dir,'proton.sasldb')
-    conf = os.path.join(abs_conf_dir,'proton-server.conf')
-    f = open(conf, 'w')
-    f.write(t.substitute(db=db))
-    f.close()
-
-    cmd_template = Template("echo password | ${saslpasswd} -c -p -f ${db} -u proton user")
-    cmd = cmd_template.substitute(db=db, saslpasswd=saslpasswd)
-    subprocess.call(args=cmd, shell=True)
-
-    os.environ['PN_SASL_CONFIG_PATH'] = abs_conf_dir
-    global createdSASLDb
-    createdSASLDb = True
-
-# Globally initialize Cyrus SASL configuration
-if SASL.extended():
-  _cyrusSetup('sasl_conf')
-
-def ensureCanTestExtendedSASL():
-  if not SASL.extended():
-    raise Skipped('Extended SASL not supported')
-  if not createdSASLDb:
-    raise Skipped("Can't Test Extended SASL: Couldn't create auth db")
 
 class Test(TestCase):
 
@@ -280,24 +219,14 @@ class MessengerApp(object):
                     foundfile = self.findfile(cmd[0], os.environ['PATH'])
                     if foundfile is None:
                         foundfile = self.findfile(cmd[0], os.environ['PYTHONPATH'])
-                        msg = "Unable to locate file '%s' in PATH or PYTHONPATH" % cmd[0]
-                        raise Skipped("Skipping test - %s" % msg)
-
+                        assert foundfile is not None, "Unable to locate file '%s' in PATH or PYTHONPATH" % cmd[0]
                     del cmd[0:1]
                     cmd.insert(0, foundfile)
                     cmd.insert(0, sys.executable)
-            self._process = Popen(cmd, stdout=PIPE, stderr=STDOUT,
-                                  bufsize=4096, universal_newlines=True)
-        except OSError:
-            e = sys.exc_info()[1]
+            self._process = Popen(cmd, stdout=PIPE, stderr=STDOUT, bufsize=4096)
+        except OSError, e:
             print("ERROR: '%s'" % e)
-            msg = "Unable to execute command '%s', is it in your PATH?" % cmd[0]
-
-            # NOTE(flaper87): Skip the test if the command is not found.
-            if e.errno == 2:
-              raise Skipped("Skipping test - %s" % msg)
-            assert False, msg
-
+            assert False, "Unable to execute command '%s', is it in your PATH?" % cmd[0]
         self._ready()  # wait for it to initialize
 
     def stop(self):
@@ -466,7 +395,7 @@ class MessengerReceiver(MessengerApp):
     def _ready(self):
         """ wait for subscriptions to complete setup. """
         r = self._process.stdout.readline()
-        assert r.strip() == "READY", "Unexpected input while waiting for receiver to initialize: %s" % r
+        assert r == "READY" + os.linesep, "Unexpected input while waiting for receiver to initialize: %s" % r
 
 class MessengerSenderC(MessengerSender):
     def __init__(self):

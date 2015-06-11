@@ -78,9 +78,6 @@ class pn_message_wrapper:
       bod = AmqpValue(bod)
     self.impl.setBody(bod)
 
-  def __repr__(self):
-    return self.impl.toString()
-
 def pn_message():
   return pn_message_wrapper()
 
@@ -218,7 +215,7 @@ def pn_message_properties(msg):
 def pn_message_body(msg):
   return msg.body
 
-def pn_message_decode(msg, data):
+def pn_message_decode(msg, data, n):
   n = msg.impl.decode(array(data, 'b'), 0, len(data))
   msg.post_decode()
   return n

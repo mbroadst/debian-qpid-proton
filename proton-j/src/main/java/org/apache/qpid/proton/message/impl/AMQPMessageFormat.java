@@ -30,9 +30,7 @@ import org.apache.qpid.proton.amqp.Symbol;
 import org.apache.qpid.proton.amqp.transport.Flow;
 import org.apache.qpid.proton.message.*;
 
-/**
- * @deprecated This class will be removed in a future release.
- */
+
 class AMQPMessageFormat
 {
 

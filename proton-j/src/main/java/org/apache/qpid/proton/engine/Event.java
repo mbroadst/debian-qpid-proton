@@ -20,17 +20,13 @@
  */
 package org.apache.qpid.proton.engine;
 
-import org.apache.qpid.proton.reactor.Reactor;
-import org.apache.qpid.proton.reactor.Selectable;
-import org.apache.qpid.proton.reactor.Task;
-
 
 /**
  * Event
  *
  */
 
-public interface Event extends Extendable
+public interface Event
 {
 
     public enum Type {
@@ -87,7 +83,7 @@ public interface Event extends Extendable
 
     Object getContext();
 
-    void dispatch(Handler handler) throws HandlerException;
+    void dispatch(Handler handler);
 
     Connection getConnection();
 
@@ -98,12 +94,6 @@ public interface Event extends Extendable
     Delivery getDelivery();
 
     Transport getTransport();
-
-    Reactor getReactor();
-
-    Selectable getSelectable();
-
-    Task getTask();
 
     Event copy();
 

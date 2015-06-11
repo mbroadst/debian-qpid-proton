@@ -1,4 +1,3 @@
-from __future__ import print_function
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -39,7 +38,7 @@ class Server(MessagingHandler):
             self.relay = self.container.create_sender(self.conn, None)
 
     def on_connection_close(self, endpoint, error):
-        if error: print("Closed due to %s" % error)
+        if error: print "Closed due to %s" % error
         self.conn.close()
 
     def run(self):

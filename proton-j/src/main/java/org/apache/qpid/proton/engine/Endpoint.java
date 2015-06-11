@@ -23,7 +23,7 @@ package org.apache.qpid.proton.engine;
 
 import org.apache.qpid.proton.amqp.transport.ErrorCondition;
 
-public interface Endpoint extends Extendable
+public interface Endpoint
 {
     /**
      * @return the local endpoint state
@@ -76,5 +76,4 @@ public interface Endpoint extends Extendable
      * @see #setContext(Object)
      */
     public Object getContext();
-
 }

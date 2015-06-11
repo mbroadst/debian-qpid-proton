@@ -52,12 +52,4 @@ public interface Session extends Endpoint
 
     public int getOutgoingBytes();
 
-    public long getOutgoingWindow();
-
-    /**
-     * Sets the outgoing window size.
-     *
-     * @param outgoingWindowSize the outgoing window size
-     */
-    public void setOutgoingWindow(long outgoingWindowSize);
 }

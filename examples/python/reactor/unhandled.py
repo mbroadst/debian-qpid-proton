@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 import time
 from proton.reactor import Reactor
 
@@ -29,7 +28,7 @@ class Program:
     # if it exists. This can be useful not only for debugging, but for
     # logging and for delegating/inheritance.
     def on_unhandled(self, name, event):
-        print(name, event)
+        print name, event
 
 r = Reactor(Program())
 r.run()

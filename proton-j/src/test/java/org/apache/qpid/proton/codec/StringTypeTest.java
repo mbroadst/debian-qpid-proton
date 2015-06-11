@@ -27,8 +27,6 @@ import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Set;
 
 import org.apache.qpid.proton.amqp.messaging.AmqpValue;
@@ -40,8 +38,6 @@ import org.junit.Test;
 public class StringTypeTest
 {
     private static final Charset CHARSET_UTF8 = Charset.forName("UTF-8");
-
-    private static final List<String> TEST_DATA = generateTestData();
 
     /**
      * Loop over all the chars in given {@link UnicodeBlock}s and return a
@@ -95,7 +91,7 @@ public class StringTypeTest
     @Test
     public void calculateUTF8Length()
     {
-        for (final String input : TEST_DATA)
+        for (final String input : generateTestData())
         {
             assertEquals("Incorrect string length calculated for string '"+input+"'",input.getBytes(CHARSET_UTF8).length, StringType.calculateUTF8Length(input));
         }
@@ -112,7 +108,7 @@ public class StringTypeTest
         AMQPDefinedTypes.registerAllTypes(decoder, encoder);
         final ByteBuffer bb = ByteBuffer.allocate(16);
 
-        for (final String input : TEST_DATA)
+        for (final String input : generateTestData())
         {
             bb.clear();
             final AmqpValue inputValue = new AmqpValue(input);
@@ -126,37 +122,36 @@ public class StringTypeTest
     }
 
     // build up some test data with a set of suitable Unicode characters
-    private static List<String> generateTestData()
+    private Set<String> generateTestData()
     {
-        return new LinkedList<String>()
-        {
-            private static final long serialVersionUID = 7331717267070233454L;
+        return new HashSet<String>()
             {
-                // non-surrogate pair blocks
-                addAll(getAllStringsFromUnicodeBlocks(UnicodeBlock.BASIC_LATIN,
-                                                     UnicodeBlock.LATIN_1_SUPPLEMENT,
-                                                     UnicodeBlock.GREEK,
-                                                     UnicodeBlock.LETTERLIKE_SYMBOLS));
-                // blocks with surrogate pairs
-                //TODO: restore others when Java 7 is baseline
-                addAll(getAllStringsFromUnicodeBlocks(UnicodeBlock.LINEAR_B_SYLLABARY,
-                                                     /*UnicodeBlock.MISCELLANEOUS_SYMBOLS_AND_PICTOGRAPHS,*/
-                                                     UnicodeBlock.MUSICAL_SYMBOLS,
-                                                     /*UnicodeBlock.EMOTICONS,*/
-                                                     /*UnicodeBlock.PLAYING_CARDS,*/
-                                                     UnicodeBlock.BOX_DRAWING,
-                                                     UnicodeBlock.HALFWIDTH_AND_FULLWIDTH_FORMS,
-                                                     UnicodeBlock.PRIVATE_USE_AREA,
-                                                     UnicodeBlock.SUPPLEMENTARY_PRIVATE_USE_AREA_A,
-                                                     UnicodeBlock.SUPPLEMENTARY_PRIVATE_USE_AREA_B));
-                // some additional combinations of characters that could cause problems to the encoder
-                String[] boxDrawing = getAllStringsFromUnicodeBlocks(UnicodeBlock.BOX_DRAWING).toArray(new String[0]);
-                String[] halfFullWidthForms = getAllStringsFromUnicodeBlocks(UnicodeBlock.HALFWIDTH_AND_FULLWIDTH_FORMS).toArray(new String[0]);
-                for (int i = 0; i < halfFullWidthForms.length; i++)
+                private static final long serialVersionUID = 7331717267070233454L;
+
                 {
-                    add(halfFullWidthForms[i] + boxDrawing[i % boxDrawing.length]);
+                    // non-surrogate pair blocks
+                    addAll(getAllStringsFromUnicodeBlocks(UnicodeBlock.BASIC_LATIN,
+                                                         UnicodeBlock.LATIN_1_SUPPLEMENT,
+                                                         UnicodeBlock.GREEK,
+                                                         UnicodeBlock.LETTERLIKE_SYMBOLS));
+                    // blocks with surrogate pairs
+                    //TODO: restore others when Java 7 is baseline
+                    addAll(getAllStringsFromUnicodeBlocks(/*UnicodeBlock.MISCELLANEOUS_SYMBOLS_AND_PICTOGRAPHS,*/
+                                                         UnicodeBlock.MUSICAL_SYMBOLS,
+                                                         /*UnicodeBlock.EMOTICONS,*/
+                                                         /*UnicodeBlock.PLAYING_CARDS,*/
+                                                         UnicodeBlock.BOX_DRAWING,
+                                                         UnicodeBlock.HALFWIDTH_AND_FULLWIDTH_FORMS,
+                                                         UnicodeBlock.SUPPLEMENTARY_PRIVATE_USE_AREA_A,
+                                                         UnicodeBlock.SUPPLEMENTARY_PRIVATE_USE_AREA_B));
+                    // some additional combinations of characters that could cause problems to the encoder
+                    String[] boxDrawing = getAllStringsFromUnicodeBlocks(UnicodeBlock.BOX_DRAWING).toArray(new String[0]);
+                    String[] halfFullWidthForms = getAllStringsFromUnicodeBlocks(UnicodeBlock.HALFWIDTH_AND_FULLWIDTH_FORMS).toArray(new String[0]);
+                    for (int i = 0; i < halfFullWidthForms.length; i++)
+                    {
+                        add(halfFullWidthForms[i] + boxDrawing[i % boxDrawing.length]);
+                    }
                 }
-            }
-        };
+            };
     }
 }

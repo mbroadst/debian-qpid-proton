@@ -111,8 +111,6 @@ struct pni_ssl_t {
   bool ssl_closed;      // shutdown complete, or SSL error
   bool read_blocked;    // SSL blocked until more network data is read
   bool write_blocked;   // SSL blocked until data is written to network
-
-  char *subject;
 };
 
 static inline pn_transport_t *get_transport_internal(pn_ssl_t *ssl)
@@ -232,7 +230,7 @@ static bool match_dns_pattern( const char *hostname,
   int slen = (int) strlen(hostname);
   if (memchr( pattern, '*', plen ) == NULL)
     return (plen == slen &&
-            pn_strncasecmp( pattern, hostname, plen ) == 0);
+            strncasecmp( pattern, hostname, plen ) == 0);
 
   /* dns wildcarded pattern - RFC2818 */
   char plabel[64];   /* max label length < 63 - RFC1034 */
@@ -262,15 +260,15 @@ static bool match_dns_pattern( const char *hostname,
 
     char *star = strchr( plabel, '*' );
     if (!star) {
-      if (pn_strcasecmp( plabel, slabel )) return false;
+      if (strcasecmp( plabel, slabel )) return false;
     } else {
       *star = '\0';
       char *prefix = plabel;
       int prefix_len = strlen(prefix);
       char *suffix = star + 1;
       int suffix_len = strlen(suffix);
-      if (prefix_len && pn_strncasecmp( prefix, slabel, prefix_len )) return false;
-      if (suffix_len && pn_strncasecmp( suffix,
+      if (prefix_len && strncasecmp( prefix, slabel, prefix_len )) return false;
+      if (suffix_len && strncasecmp( suffix,
                                      slabel + (strlen(slabel) - suffix_len),
                                      suffix_len )) return false;
     }
@@ -683,14 +681,12 @@ const pn_io_layer_t ssl_layer = {
     process_input_ssl,
     process_output_ssl,
     NULL,
-    NULL,
     buffered_output
 };
 
 const pn_io_layer_t ssl_input_closed_layer = {
     process_input_done,
     process_output_ssl,
-    NULL,
     NULL,
     buffered_output
 };
@@ -699,14 +695,12 @@ const pn_io_layer_t ssl_output_closed_layer = {
     process_input_ssl,
     process_output_done,
     NULL,
-    NULL,
     buffered_output
 };
 
 const pn_io_layer_t ssl_closed_layer = {
     process_input_done,
     process_output_done,
-    NULL,
     NULL,
     buffered_output
 };
@@ -722,10 +716,6 @@ int pn_ssl_init(pn_ssl_t *ssl0, pn_ssl_domain_t *domain, const char *session_id)
   if (session_id && domain->mode == PN_SSL_MODE_CLIENT)
     ssl->session_id = pn_strdup(session_id);
 
-  // If SSL doesn't specifically allow skipping encryption, require SSL
-  // TODO: This is a probably a stop-gap until allow_unsecured is removed
-  if (!domain->allow_unsecured) transport->encryption_required = true;
-
   return init_ssl_socket(transport, ssl);
 }
 
@@ -734,22 +724,16 @@ int pn_ssl_domain_allow_unsecured_client(pn_ssl_domain_t *domain)
 {
   if (!domain) return -1;
   if (domain->mode != PN_SSL_MODE_SERVER) {
-    pn_transport_logf(NULL, "Cannot permit unsecured clients - not a server.");
+    pn_transport_log(NULL, "Cannot permit unsecured clients - not a server.");
     return -1;
   }
   domain->allow_unsecured = true;
   return 0;
 }
 
-int pn_ssl_get_ssf(pn_ssl_t *ssl0)
+bool pn_ssl_allow_unsecured(pn_transport_t *transport)
 {
-  const SSL_CIPHER *c;
-
-  pni_ssl_t *ssl = get_ssl_internal(ssl0);
-  if (ssl && ssl->ssl && (c = SSL_get_current_cipher( ssl->ssl ))) {
-    return SSL_CIPHER_get_bits(c, NULL);
-  }
-  return 0;
+  return transport && transport->ssl && transport->ssl->domain && transport->ssl->domain->allow_unsecured;
 }
 
 bool pn_ssl_get_cipher_name(pn_ssl_t *ssl0, char *buffer, size_t size )
@@ -796,7 +780,6 @@ void pn_ssl_free(pn_transport_t *transport)
   if (ssl->peer_hostname) free((void *)ssl->peer_hostname);
   if (ssl->inbuf) free((void *)ssl->inbuf);
   if (ssl->outbuf) free((void *)ssl->outbuf);
-  if (ssl->subject) free(ssl->subject);
   free(ssl);
 }
 
@@ -823,13 +806,6 @@ pn_ssl_t *pn_ssl(pn_transport_t *transport)
   }
 
   transport->ssl = ssl;
-
-  // Set up hostname from any bound connection
-  if (transport->connection) {
-    if (pn_string_size(transport->connection->hostname)) {
-      pn_ssl_set_peer_hostname((pn_ssl_t *) transport, pn_string_get(transport->connection->hostname));
-    }
-  }
 
   return (pn_ssl_t *) transport;
 }
@@ -1196,7 +1172,6 @@ static int init_ssl_socket(pn_transport_t* transport, pni_ssl_t *ssl)
     BIO_set_ssl_mode(ssl->bio_ssl, 1);  // client mode
     ssl_log( transport, "Client SSL socket created." );
   }
-  ssl->subject = NULL;
   return 0;
 }
 
@@ -1265,27 +1240,6 @@ int pn_ssl_get_peer_hostname(pn_ssl_t *ssl0, char *hostname, size_t *bufsize)
   }
   *bufsize = len;
   return 0;
-}
-
-const char* pn_ssl_get_remote_subject(pn_ssl_t *ssl0)
-{
-  pni_ssl_t *ssl = get_ssl_internal(ssl0);
-  if (!ssl || !ssl->ssl) return NULL;
-  if (!ssl->subject) {
-    X509 *cert = SSL_get_peer_certificate(ssl->ssl);
-    if (!cert) return NULL;
-    X509_NAME *subject = X509_get_subject_name(cert);
-    if (!subject) return NULL;
-
-    BIO *out = BIO_new(BIO_s_mem());
-    X509_NAME_print_ex(out, subject, 0, XN_FLAG_RFC2253);
-    int len = BIO_number_written(out);
-    ssl->subject = (char*) malloc(len+1);
-    ssl->subject[len] = 0;
-    BIO_read(out, ssl->subject, len);
-    BIO_free(out);
-  }
-  return ssl->subject;
 }
 
 static ssize_t process_input_done(pn_transport_t *transport, unsigned int layer, const char *input_data, size_t len)

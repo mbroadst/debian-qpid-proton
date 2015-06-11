@@ -20,16 +20,11 @@
  */
 package org.apache.qpid.proton.engine.impl;
 
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
+import java.util.*;
 import org.apache.qpid.proton.engine.EndpointState;
-import org.apache.qpid.proton.engine.Event;
 import org.apache.qpid.proton.engine.ProtonJSession;
 import org.apache.qpid.proton.engine.Session;
+import org.apache.qpid.proton.engine.Event;
 
 public class SessionImpl extends EndpointImpl implements ProtonJSession
 {
@@ -37,14 +32,12 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
 
     private Map<String, SenderImpl> _senders = new LinkedHashMap<String, SenderImpl>();
     private Map<String, ReceiverImpl>  _receivers = new LinkedHashMap<String, ReceiverImpl>();
-    private List<LinkImpl> _oldLinksToFree = new ArrayList<LinkImpl>();
     private TransportSession _transportSession;
     private int _incomingCapacity = 1024*1024;
     private int _incomingBytes = 0;
     private int _outgoingBytes = 0;
     private int _incomingDeliveries = 0;
     private int _outgoingDeliveries = 0;
-    private long _outgoingWindow = Integer.MAX_VALUE;
 
     private LinkNode<SessionImpl> _node;
 
@@ -57,7 +50,6 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
         _connection.put(Event.Type.SESSION_INIT, this);
     }
 
-    @Override
     public SenderImpl sender(String name)
     {
         SenderImpl sender = _senders.get(name);
@@ -66,21 +58,9 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
             sender = new SenderImpl(this, name);
             _senders.put(name, sender);
         }
-        else
-        {
-            if(sender.getLocalState() == EndpointState.CLOSED
-                  && sender.getRemoteState() == EndpointState.CLOSED)
-            {
-                _oldLinksToFree.add(sender);
-
-                sender = new SenderImpl(this, name);
-                _senders.put(name, sender);
-            }
-        }
         return sender;
     }
 
-    @Override
     public ReceiverImpl receiver(String name)
     {
         ReceiverImpl receiver = _receivers.get(name);
@@ -89,21 +69,9 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
             receiver = new ReceiverImpl(this, name);
             _receivers.put(name, receiver);
         }
-        else
-        {
-            if(receiver.getLocalState() == EndpointState.CLOSED
-                  && receiver.getRemoteState() == EndpointState.CLOSED)
-            {
-                _oldLinksToFree.add(receiver);
-
-                receiver = new ReceiverImpl(this, name);
-                _receivers.put(name, receiver);
-            }
-        }
         return receiver;
     }
 
-    @Override
     public Session next(EnumSet<EndpointState> local, EnumSet<EndpointState> remote)
     {
         LinkNode.Query<SessionImpl> query = new EndpointImplQuery<SessionImpl>(local, remote);
@@ -119,7 +87,6 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
         return _connection;
     }
 
-    @Override
     public ConnectionImpl getConnection()
     {
         return getConnectionImpl();
@@ -133,7 +100,6 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
 
     @Override
     void doFree() {
-        _connection.freeSession(this);
         _connection.removeSessionEndpoint(_node);
         _node = null;
 
@@ -148,11 +114,6 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
             receiver.free();
         }
         _receivers.clear();
-
-        List<LinkImpl> links = new ArrayList<LinkImpl>(_oldLinksToFree);
-        for(LinkImpl link : links) {
-            link.free();
-        }
     }
 
     void modifyEndpoints() {
@@ -183,30 +144,12 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
 
     void freeSender(SenderImpl sender)
     {
-        String name = sender.getName();
-        SenderImpl existing = _senders.get(name);
-        if (sender.equals(existing))
-        {
-            _senders.remove(name);
-        }
-        else
-        {
-            _oldLinksToFree.remove(sender);
-        }
+        _senders.remove(sender.getName());
     }
 
     void freeReceiver(ReceiverImpl receiver)
     {
-        String name = receiver.getName();
-        ReceiverImpl existing = _receivers.get(name);
-        if (receiver.equals(existing))
-        {
-            _receivers.remove(name);
-        }
-        else
-        {
-            _oldLinksToFree.remove(receiver);
-        }
+        _receivers.remove(receiver.getName());
     }
 
     @Override
@@ -268,22 +211,5 @@ public class SessionImpl extends EndpointImpl implements ProtonJSession
     void localClose()
     {
         getConnectionImpl().put(Event.Type.SESSION_LOCAL_CLOSE, this);
-    }
-
-    @Override
-    public void setOutgoingWindow(long outgoingWindow) {
-        if(outgoingWindow < 0 || outgoingWindow > 0xFFFFFFFFL)
-        {
-            throw new IllegalArgumentException("Value '" + outgoingWindow + "' must be in the"
-                    + " range [0 - 2^32-1]");
-        }
-
-        _outgoingWindow = outgoingWindow;
-    }
-
-    @Override
-    public long getOutgoingWindow()
-    {
-        return _outgoingWindow;
     }
 }

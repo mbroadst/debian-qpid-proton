@@ -20,8 +20,6 @@
  */
 package org.apache.qpid.proton.engine;
 
-import java.util.Iterator;
-
 
 /**
  * Handler
@@ -64,22 +62,6 @@ public interface Handler
     void onTransportTailClosed(Event e);
     void onTransportClosed(Event e);
 
-    void onReactorInit(Event e);
-    void onReactorQuiesced(Event e);
-    void onReactorFinal(Event e);
-
-    void onTimerTask(Event e);
-
-    void onSelectableInit(Event e);
-    void onSelectableUpdated(Event e);
-    void onSelectableReadable(Event e);
-    void onSelectableWritable(Event e);
-    void onSelectableExpired(Event e);
-    void onSelectableError(Event e);
-    void onSelectableFinal(Event e);
-
     void onUnhandled(Event e);
 
-    void add(Handler child);
-    Iterator<Handler> children();
 }

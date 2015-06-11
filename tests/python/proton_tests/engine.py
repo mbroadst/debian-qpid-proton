@@ -16,17 +16,12 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from __future__ import absolute_import
 
-import os, gc
-import sys
-from . import common
+import os, common, gc
 from time import time, sleep
 from proton import *
-from .common import pump, Skipped
+from common import pump
 from proton.reactor import Reactor
-from proton._compat import str2bin
-
 
 # older versions of gc do not provide the garbage list
 if not hasattr(gc, "garbage"):
@@ -38,19 +33,6 @@ if not hasattr(gc, "garbage"):
 #  + shrinking output_size down to something small? should the enginge buffer?
 #  + resuming
 #    - locally and remotely created deliveries with the same tag
-
-# Jython 2.5 needs this:
-try:
-    bytes()
-except:
-    bytes = str
-
-# and this...
-try:
-    bytearray()
-except:
-    def bytearray(x):
-        return str2bin('\x00') * x
 
 OUTPUT_SIZE = 10*1024
 
@@ -227,68 +209,11 @@ class ConnectionTest(Test):
     assert self.c2.remote_properties == p1, (self.c2.remote_properties, p1)
     assert self.c1.remote_properties == p2, (self.c2.remote_properties, p2)
 
-  # The proton implementation limits channel_max to 32767.
-  # If I set the application's limit lower than that, I should 
-  # get my wish.  If I set it higher -- not.
-  def test_channel_max_low(self, value=1234):
+  def test_channel_max(self, value=1234):
     self.c1.transport.channel_max = value
     self.c1.open()
     self.pump()
-    assert self.c1.transport.channel_max == value, (self.c1.transport.channel_max, value)
-
-  def test_channel_max_high(self, value=65535):
-    self.c1.transport.channel_max = value
-    self.c1.open()
-    self.pump()
-    if "java" in sys.platform:
-      assert self.c1.transport.channel_max == 65535, (self.c1.transport.channel_max, value)
-    else:
-      assert self.c1.transport.channel_max == 32767, (self.c1.transport.channel_max, value)
-
-  def test_channel_max_raise_and_lower(self):
-    if "java" in sys.platform:
-      upper_limit = 65535
-    else:
-      upper_limit = 32767
-
-    # It's OK to lower the max below upper_limit.
-    self.c1.transport.channel_max = 12345
-    assert self.c1.transport.channel_max == 12345
-
-    # But it won't let us raise the limit above PN_IMPL_CHANNEL_MAX.
-    self.c1.transport.channel_max = 65535
-    assert self.c1.transport.channel_max == upper_limit
-
-    # send the OPEN frame
-    self.c1.open()
-    self.pump()
-
-    # Now it's too late to make any change, because
-    # we have already sent the OPEN frame.
-    try:
-      self.c1.transport.channel_max = 666
-      assert False, "expected session exception"
-    except:
-      pass
-
-    assert self.c1.transport.channel_max == upper_limit
-
-
-  def test_channel_max_limits_sessions(self):
-    return
-    # This is an index -- so max number of channels should be 1.
-    self.c1.transport.channel_max = 0
-    self.c1.open()
-    self.c2.open()
-    ssn_0 = self.c2.session()
-    assert ssn_0 != None
-    ssn_0.open()
-    self.pump()
-    try:
-      ssn_1 = self.c2.session()
-      assert False, "expected session exception"
-    except SessionException:
-      pass
+    assert self.c2.transport.remote_channel_max == value, (self.c2.transport.remote_channel_max, value)
 
   def test_cleanup(self):
     self.c1.open()
@@ -306,25 +231,6 @@ class ConnectionTest(Test):
     # transport should flush last state from C1:
     pump(t1, t2)
     assert c2.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_CLOSED
-
-  def test_user_config(self):
-    if "java" in sys.platform:
-      raise Skipped("Unsupported API")
-
-    self.c1.user = "vindaloo"
-    self.c1.password = "secret"
-    self.c1.open()
-    self.pump()
-
-    self.c2.user = "leela"
-    self.c2.password = "trustno1"
-    self.c2.open()
-    self.pump()
-
-    assert self.c1.user == "vindaloo", self.c1.user
-    assert self.c1.password == None, self.c1.password
-    assert self.c2.user == "leela", self.c2.user
-    assert self.c2.password == None, self.c2.password
 
 class SessionTest(Test):
 
@@ -463,56 +369,6 @@ class SessionTest(Test):
     self.pump()
     assert rcv_ssn.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_CLOSED
 
-  def test_reopen_on_same_session_without_free(self):
-    """
-    confirm that a link is correctly opened when attaching to a previously
-    closed link *that has not been freed yet* on the same session
-    """
-    self.ssn.open()
-    self.pump()
-
-    ssn2 = self.c2.session_head(Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_ACTIVE)
-    ssn2.open()
-    self.pump()
-    snd = self.ssn.sender("test-link")
-    rcv = ssn2.receiver("test-link")
-
-    assert snd.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
-    assert rcv.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
-
-    snd.open()
-    rcv.open()
-    self.pump()
-
-    assert snd.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
-    assert rcv.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
-
-    snd.close()
-    rcv.close()
-    self.pump()
-
-    assert snd.state == Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED
-    assert rcv.state == Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED
-
-    snd = self.ssn.sender("test-link")
-    rcv = ssn2.receiver("test-link")
-    assert snd.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
-    assert rcv.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
-
-    snd.open()
-    rcv.open()
-    self.pump()
-
-    assert snd.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
-    assert rcv.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
-
-  def test_set_get_outgoing_window(self):
-    assert self.ssn.outgoing_window == 2147483647
-
-    self.ssn.outgoing_window = 1024
-    assert self.ssn.outgoing_window == 1024
-
-
 class LinkTest(Test):
 
   def setup(self):
@@ -573,6 +429,40 @@ class LinkTest(Test):
 
     assert self.snd.state == Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED
     assert self.rcv.state == Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED
+
+  def test_reopen_on_same_session(self):
+    """
+    confirm that a link is correctly opened when attaching to a previously
+    detached link on the same session
+    """
+    assert self.snd.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
+    assert self.rcv.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
+
+    self.snd.open()
+    self.rcv.open()
+    self.pump()
+
+    assert self.snd.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
+    assert self.rcv.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
+
+    self.snd.close()
+    self.rcv.close()
+    self.pump()
+
+    assert self.snd.state == Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED
+    assert self.rcv.state == Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED
+
+    self.snd, self.rcv = self.link("test-link")
+    assert self.snd.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
+    assert self.rcv.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
+
+    self.snd.open()
+    self.rcv.open()
+    self.pump()
+
+    assert self.snd.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
+    assert self.rcv.state == Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE
+
 
   def test_simultaneous_open_close(self):
     assert self.snd.state == Endpoint.LOCAL_UNINIT | Endpoint.REMOTE_UNINIT
@@ -833,7 +723,7 @@ class TransferTest(Test):
     assert tag == "tag", tag
     assert d.writable
 
-    n = self.snd.send(str2bin("this is a test"))
+    n = self.snd.send("this is a test")
     assert self.snd.advance()
     assert self.c1.work_head is None
 
@@ -846,7 +736,7 @@ class TransferTest(Test):
   def test_multiframe(self):
     self.rcv.flow(1)
     self.snd.delivery("tag")
-    msg = str2bin("this is a test")
+    msg = "this is a test"
     n = self.snd.send(msg)
     assert n == len(msg)
 
@@ -857,24 +747,24 @@ class TransferTest(Test):
     assert d.tag == "tag", repr(d.tag)
     assert d.readable
 
-    binary = self.rcv.recv(1024)
-    assert binary == msg, (binary, msg)
+    bytes = self.rcv.recv(1024)
+    assert bytes == msg, (bytes, msg)
 
-    binary = self.rcv.recv(1024)
-    assert binary == str2bin("")
+    bytes = self.rcv.recv(1024)
+    assert bytes == ""
 
-    msg = str2bin("this is more")
+    msg = "this is more"
     n = self.snd.send(msg)
     assert n == len(msg)
     assert self.snd.advance()
 
     self.pump()
 
-    binary = self.rcv.recv(1024)
-    assert binary == msg, (binary, msg)
+    bytes = self.rcv.recv(1024)
+    assert bytes == msg, (bytes, msg)
 
-    binary = self.rcv.recv(1024)
-    assert binary is None
+    bytes = self.rcv.recv(1024)
+    assert bytes is None
 
   def test_disposition(self):
     self.rcv.flow(1)
@@ -882,7 +772,7 @@ class TransferTest(Test):
     self.pump()
 
     sd = self.snd.delivery("tag")
-    msg = str2bin("this is a test")
+    msg = "this is a test"
     n = self.snd.send(msg)
     assert n == len(msg)
     assert self.snd.advance()
@@ -917,7 +807,7 @@ class TransferTest(Test):
     #fill up delivery buffer on sender
     for m in range(1024):
       sd = self.snd.delivery("tag%s" % m)
-      msg = ("message %s" % m).encode('ascii')
+      msg = "message %s" % m
       n = self.snd.send(msg)
       assert n == len(msg)
       assert self.snd.advance()
@@ -930,7 +820,7 @@ class TransferTest(Test):
       assert rd is not None, m
       assert rd.tag == ("tag%s" % m), (rd.tag, m)
       msg = self.rcv.recv(1024)
-      assert msg == ("message %s" % m).encode('ascii'), (msg, m)
+      assert msg == ("message %s" % m), (msg, m)
       rd.update(Delivery.ACCEPTED)
       rd.settle()
 
@@ -939,7 +829,7 @@ class TransferTest(Test):
     #add some new deliveries
     for m in range(1024, 1450):
       sd = self.snd.delivery("tag%s" % m)
-      msg = ("message %s" % m).encode('ascii')
+      msg = "message %s" % m
       n = self.snd.send(msg)
       assert n == len(msg)
       assert self.snd.advance()
@@ -956,7 +846,7 @@ class TransferTest(Test):
     #submit some more deliveries
     for m in range(1450, 1500):
       sd = self.snd.delivery("tag%s" % m)
-      msg = ("message %s" % m).encode('ascii')
+      msg = "message %s" % m
       n = self.snd.send(msg)
       assert n == len(msg)
       assert self.snd.advance()
@@ -971,7 +861,7 @@ class TransferTest(Test):
       assert rd is not None, m
       assert rd.tag == ("tag%s" % m), (rd.tag, m)
       msg = self.rcv.recv(1024)
-      assert msg == ("message %s" % m).encode('ascii'), (msg, m)
+      assert msg == ("message %s" % m), (msg, m)
       rd.update(Delivery.ACCEPTED)
       rd.settle()
 
@@ -981,7 +871,7 @@ class TransferTest(Test):
 
     for x in range(10):
         self.snd.delivery("tag%d" % x)
-        msg = str2bin("this is a test")
+        msg = "this is a test"
         n = self.snd.send(msg)
         assert n == len(msg)
         assert self.snd.advance()
@@ -1023,7 +913,7 @@ class MaxFrameTransferTest(Test):
     parts = []
     for i in range(size):
       parts.append(str(i))
-    return "/".join(parts)[:size].encode("utf-8")
+    return "/".join(parts)[:size]
 
   def testMinFrame(self):
     """
@@ -1048,11 +938,11 @@ class MaxFrameTransferTest(Test):
 
     self.pump()
 
-    binary = self.rcv.recv(513)
-    assert binary == msg
+    bytes = self.rcv.recv(513)
+    assert bytes == msg
 
-    binary = self.rcv.recv(1024)
-    assert binary == None
+    bytes = self.rcv.recv(1024)
+    assert bytes == None
 
   def testOddFrame(self):
     """
@@ -1070,18 +960,18 @@ class MaxFrameTransferTest(Test):
 
     self.rcv.flow(2)
     self.snd.delivery("tag")
-    msg = ("X" * 1699).encode('utf-8')
+    msg = "X" * 1699
     n = self.snd.send(msg)
     assert n == len(msg)
     assert self.snd.advance()
 
     self.pump()
 
-    binary = self.rcv.recv(1699)
-    assert binary == msg
+    bytes = self.rcv.recv(1699)
+    assert bytes == msg
 
-    binary = self.rcv.recv(1024)
-    assert binary == None
+    bytes = self.rcv.recv(1024)
+    assert bytes == None
 
     self.rcv.advance()
 
@@ -1093,13 +983,13 @@ class MaxFrameTransferTest(Test):
 
     self.pump()
 
-    binary = self.rcv.recv(1426)
-    assert binary == msg
+    bytes = self.rcv.recv(1426)
+    assert bytes == msg
 
     self.pump()
 
-    binary = self.rcv.recv(1024)
-    assert binary == None
+    bytes = self.rcv.recv(1024)
+    assert bytes == None
     
   def testBigMessage(self):
     """
@@ -1121,11 +1011,11 @@ class MaxFrameTransferTest(Test):
 
     self.pump()
 
-    binary = self.rcv.recv(1024*256)
-    assert binary == msg
+    bytes = self.rcv.recv(1024*256)
+    assert bytes == msg
 
-    binary = self.rcv.recv(1024)
-    assert binary == None
+    bytes = self.rcv.recv(1024)
+    assert bytes == None
 
 
 class IdleTimeoutTest(Test):
@@ -1497,7 +1387,7 @@ class CreditTest(Test):
 
     sd = self.snd.delivery("tagA")
     assert sd
-    n = self.snd.send(str2bin("A"))
+    n = self.snd.send("A")
     assert n == 1
     self.pump()
     self.snd.advance()
@@ -1513,8 +1403,8 @@ class CreditTest(Test):
     assert self.snd.credit == 9, self.snd.credit
     assert self.rcv.credit == 10, self.rcv.credit
 
-    data = self.rcv.recv(10)
-    assert data == str2bin("A"), data
+    bytes = self.rcv.recv(10)
+    assert bytes == "A", bytes
     self.rcv.advance()
     self.pump()
     assert self.snd.credit == 9, self.snd.credit
@@ -1535,7 +1425,7 @@ class CreditTest(Test):
 
     sd = self.snd.delivery("tagB")
     assert sd
-    n = self.snd.send(str2bin("B"))
+    n = self.snd.send("B")
     assert n == 1
     self.snd.advance()
     self.pump()
@@ -1549,7 +1439,7 @@ class CreditTest(Test):
 
     sd = self.snd.delivery("tagC")
     assert sd
-    n = self.snd.send(str2bin("C"))
+    n = self.snd.send("C")
     assert n == 1
     self.snd.advance()
     self.pump()
@@ -1563,11 +1453,11 @@ class CreditTest(Test):
     assert self.snd.credit == 0, self.snd.credit
     assert self.rcv.credit == 2, self.rcv.credit
 
-    data = self.rcv.recv(10)
-    assert data == str2bin("B"), data
+    bytes = self.rcv.recv(10)
+    assert bytes == "B", bytes
     self.rcv.advance()
-    data = self.rcv.recv(10)
-    assert data == str2bin("C"), data
+    bytes = self.rcv.recv(10)
+    assert bytes == "C", bytes
     self.rcv.advance()
     self.pump()
     assert self.snd.credit == 0, self.snd.credit
@@ -1620,10 +1510,10 @@ class CreditTest(Test):
       for i in range(10):
           tag = "test %d" % i
           self.snd.delivery( tag )
-          self.snd.send( tag.encode("ascii") )
+          self.snd.send( tag )
           assert self.snd.advance()
           self.snd2.delivery( tag )
-          self.snd2.send( tag.encode("ascii") )
+          self.snd2.send( tag )
           assert self.snd2.advance()
 
       self.pump()
@@ -1662,12 +1552,11 @@ class SessionCreditTest(Test):
     assert snd.queued == 0, snd.queued
     assert rcv.queued == 0, rcv.queued
 
-    data = bytes(bytearray(size))
     idx = 0
     while snd.credit:
       d = snd.delivery("tag%s" % idx)
       assert d
-      n = snd.send(data)
+      n = snd.send(chr(ord("a") + idx)*size)
       assert n == size, (n, size)
       assert snd.advance()
       self.pump()
@@ -1741,7 +1630,7 @@ class SessionCreditTest(Test):
     idx = 0
     while snd.credit:
       d = snd.delivery("tag%s" % idx)
-      snd.send(("x"*1024).encode('ascii'))
+      snd.send("x"*1024)
       assert d
       assert snd.advance()
       self.pump()
@@ -1844,7 +1733,7 @@ class SettlementTest(Test):
     for i in range(count):
       sd = self.snd.delivery("tag%s" % i)
       assert sd
-      n = self.snd.send(("x"*size).encode('ascii'))
+      n = self.snd.send("x"*size)
       assert n == size, n
       assert self.snd.advance()
       self.pump()
@@ -1902,7 +1791,7 @@ class PipelineTest(Test):
 
     for i in range(10):
       d = snd.delivery("delivery-%s" % i)
-      snd.send(str2bin("delivery-%s" % i))
+      snd.send("delivery-%s" % i)
       d.settle()
 
     snd.close()
@@ -1946,6 +1835,8 @@ class PipelineTest(Test):
 
     assert rcv.queued == 0, rcv.queued
 
+import sys
+from common import Skipped
 
 class ServerTest(Test):
 
@@ -1997,14 +1888,10 @@ class ServerTest(Test):
         self.conn = event.reactor.connection()
         self.conn.hostname = "%s:%s" % (server.host, server.port)
         self.conn.open()
-        self.remote_condition = None
         self.old_count = None
         # verify the connection stays up even if we don't explicitly send stuff
         # wait up to 3x the idle timeout
         event.reactor.schedule(3 * idle_timeout, self)
-
-      def on_connection_bound(self, event):
-        self.transport = event.transport
 
       def on_connection_remote_open(self, event):
         self.old_count = event.transport.frames_output
@@ -2012,7 +1899,6 @@ class ServerTest(Test):
       def on_connection_remote_close(self, event):
         assert self.conn.remote_condition
         assert self.conn.remote_condition.name == "amqp:resource-limit-exceeded"
-        self.remote_condition = self.conn.remote_condition
 
       def on_timer_task(self, event):
         assert self.conn.state == (Endpoint.LOCAL_ACTIVE | Endpoint.REMOTE_ACTIVE), "Connection terminated"
@@ -2023,8 +1909,8 @@ class ServerTest(Test):
 
     p = Program()
     Reactor(p).run()
-    assert p.remote_condition
-    assert p.remote_condition.name == "amqp:resource-limit-exceeded"
+    assert p.conn.remote_condition
+    assert p.conn.remote_condition.name == "amqp:resource-limit-exceeded"
     server.stop()
 
 class NoValue:
@@ -2332,7 +2218,7 @@ class EventTest(CollectorTest):
     self.expect(Event.CONNECTION_INIT, Event.SESSION_INIT,
                 Event.LINK_INIT, Event.LINK_LOCAL_OPEN, Event.TRANSPORT)
     snd.delivery("delivery")
-    snd.send(str2bin("Hello World!"))
+    snd.send("Hello World!")
     snd.advance()
     self.pump()
     self.expect()
@@ -2348,7 +2234,7 @@ class EventTest(CollectorTest):
     snd, rcv = self.testFlowEvents()
     snd.open()
     dlv = snd.delivery("delivery")
-    snd.send(str2bin("Hello World!"))
+    snd.send("Hello World!")
     assert snd.advance()
     self.expect(Event.LINK_LOCAL_OPEN, Event.TRANSPORT)
     self.pump()
@@ -2359,7 +2245,7 @@ class EventTest(CollectorTest):
     rdlv.update(Delivery.ACCEPTED)
     self.pump()
     event = self.expect(Event.DELIVERY)
-    assert event.context == dlv, (dlv, event.context)
+    assert event.context == dlv
 
   def testConnectionBOUND_UNBOUND(self):
     c = Connection()
@@ -2379,7 +2265,7 @@ class EventTest(CollectorTest):
     t.bind(c)
     self.expect(Event.CONNECTION_BOUND)
     assert t.condition is None
-    t.push(str2bin("asdf"))
+    t.push("asdf")
     self.expect(Event.TRANSPORT_ERROR, Event.TRANSPORT_TAIL_CLOSED)
     assert t.condition is not None
     assert t.condition.name == "amqp:connection:framing-error"
@@ -2508,10 +2394,9 @@ class TeardownLeakTest(PeerTest):
                   Event.TRANSPORT_CLOSED)
 
     self.connection.free()
-    self.expect(Event.LINK_FINAL, Event.SESSION_FINAL)
     self.transport.unbind()
 
-    self.expect(Event.CONNECTION_UNBOUND, Event.CONNECTION_FINAL)
+    self.expect(Event.LINK_FINAL, Event.SESSION_FINAL, Event.CONNECTION_UNBOUND, Event.CONNECTION_FINAL)
 
   def testLocalRemoteLeak(self):
     self.doLeak(True, True)
@@ -2529,10 +2414,9 @@ class IdleTimeoutEventTest(PeerTest):
 
   def half_pump(self):
     p = self.transport.pending()
-    if p>0:
-      self.transport.pop(p)
+    self.transport.pop(p)
 
-  def testTimeoutWithZombieServer(self, expectOpenCloseFrames=True):
+  def testTimeoutWithZombieServer(self):
     self.transport.idle_timeout = self.delay
     self.connection.open()
     self.half_pump()
@@ -2543,15 +2427,14 @@ class IdleTimeoutEventTest(PeerTest):
                 Event.CONNECTION_LOCAL_OPEN, Event.TRANSPORT,
                 Event.TRANSPORT_ERROR, Event.TRANSPORT_TAIL_CLOSED)
     assert self.transport.capacity() < 0
-    if expectOpenCloseFrames:
-      assert self.transport.pending() > 0
+    assert self.transport.pending() > 0
     self.half_pump()
     self.expect(Event.TRANSPORT_HEAD_CLOSED, Event.TRANSPORT_CLOSED)
     assert self.transport.pending() < 0
 
   def testTimeoutWithZombieServerAndSASL(self):
     sasl = self.transport.sasl()
-    self.testTimeoutWithZombieServer(expectOpenCloseFrames=False)
+    self.testTimeoutWithZombieServer()
 
 class DeliverySegFaultTest(Test):
 
@@ -2566,71 +2449,3 @@ class DeliverySegFaultTest(Test):
     t.bind(conn)
     t.unbind()
     dlv = snd.delivery("tag")
-
-class SaslEventTest(CollectorTest):
-
-  def testAnonymousNoInitialResponse(self):
-    if "java" in sys.platform:
-      raise Skipped()
-    conn = Connection()
-    conn.collect(self.collector)
-    transport = Transport(Transport.SERVER)
-    transport.bind(conn)
-    self.expect(Event.CONNECTION_INIT, Event.CONNECTION_BOUND)
-
-    transport.push(str2bin('AMQP\x03\x01\x00\x00\x00\x00\x00 \x02\x01\x00\x00\x00SA'
-                           '\xd0\x00\x00\x00\x10\x00\x00\x00\x02\xa3\tANONYMOUS@'
-                           'AMQP\x00\x01\x00\x00'))
-    self.expect(Event.TRANSPORT)
-    for i in range(1024):
-      p = transport.pending()
-      self.drain()
-    p = transport.pending()
-    self.expect()
-
-  def testPipelinedServerReadFirst(self):
-    if "java" in sys.platform:
-      raise Skipped()
-    conn = Connection()
-    conn.collect(self.collector)
-    transport = Transport(Transport.CLIENT)
-    s = transport.sasl()
-    s.allowed_mechs("ANONYMOUS PLAIN")
-    transport.bind(conn)
-    self.expect(Event.CONNECTION_INIT, Event.CONNECTION_BOUND)
-    transport.push(str2bin('AMQP\x03\x01\x00\x00\x00\x00\x00\x1c\x02\x01\x00\x00\x00S@'
-                           '\xc0\x0f\x01\xe0\x0c\x01\xa3\tANONYMOUS\x00\x00\x00\x10'
-                           '\x02\x01\x00\x00\x00SD\xc0\x03\x01P\x00AMQP\x00\x01\x00'
-                           '\x00'))
-    self.expect(Event.TRANSPORT)
-    p = transport.pending()
-    bytes = transport.peek(p)
-    transport.pop(p)
-
-    server = Transport(Transport.SERVER)
-    server.push(bytes)
-    assert server.sasl().outcome == SASL.OK
-
-  def testPipelinedServerWriteFirst(self):
-    if "java" in sys.platform:
-      raise Skipped()
-    conn = Connection()
-    conn.collect(self.collector)
-    transport = Transport(Transport.CLIENT)
-    s = transport.sasl()
-    s.allowed_mechs("ANONYMOUS")
-    transport.bind(conn)
-    p = transport.pending()
-    bytes = transport.peek(p)
-    transport.pop(p)
-    self.expect(Event.CONNECTION_INIT, Event.CONNECTION_BOUND, Event.TRANSPORT)
-    transport.push(str2bin('AMQP\x03\x01\x00\x00\x00\x00\x00\x1c\x02\x01\x00\x00\x00S@'
-                           '\xc0\x0f\x01\xe0\x0c\x01\xa3\tANONYMOUS\x00\x00\x00\x10'
-                           '\x02\x01\x00\x00\x00SD\xc0\x03\x01P\x00AMQP\x00\x01\x00'
-                           '\x00'))
-    self.expect(Event.TRANSPORT)
-    p = transport.pending()
-    bytes = transport.peek(p)
-    transport.pop(p)
-    # XXX: the bytes above appear to be correct, but we don't get any
-    # sort of event indicating that the transport is authenticated

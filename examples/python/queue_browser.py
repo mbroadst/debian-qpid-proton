@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 from proton.reactor import Container, Copy
 from proton.handlers import MessagingHandler
 
@@ -31,7 +30,7 @@ class Recv(MessagingHandler):
         event.container.create_receiver(conn, "examples", options=Copy())
 
     def on_message(self, event):
-        print(event.message)
+        print event.message
         if event.receiver.queued == 0 and event.receiver.drained:
             event.connection.close()
 

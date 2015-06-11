@@ -22,6 +22,7 @@
  *
  */
 
+#include <sys/types.h>
 #ifndef __cplusplus
 #include <stdbool.h>
 #endif

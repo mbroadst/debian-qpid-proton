@@ -133,7 +133,7 @@ public class DataImpl implements Data
     }
 
     @Override
-    public long encodedSize()
+    public Binary encode()
     {
         int size = 0;
         Element elt = _first;
@@ -142,13 +142,7 @@ public class DataImpl implements Data
             size += elt.size();
             elt = elt.next();
         }
-        return size;
-    }
-
-    @Override
-    public Binary encode()
-    {
-        byte[] data = new byte[(int)encodedSize()];
+        byte[] data = new byte[size];
         ByteBuffer buf = ByteBuffer.wrap(data);
         encode(buf);
 

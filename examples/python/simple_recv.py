@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 import optparse
 from proton.handlers import MessagingHandler
 from proton.reactor import Container
@@ -38,7 +37,7 @@ class Recv(MessagingHandler):
             # ignore duplicate message
             return
         if self.expected == 0 or self.received < self.expected:
-            print(event.message.body)
+            print event.message.body
             self.received += 1
             if self.received == self.expected:
                 event.receiver.close()

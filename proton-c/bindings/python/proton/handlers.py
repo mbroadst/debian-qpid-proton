@@ -16,8 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-import heapq, logging, os, re, socket, time, types
-
+import heapq, logging, os, Queue, re, socket, time, types
 from proton import dispatch, generate_uuid, PN_ACCEPTED, SASL, symbol, ulong, Url
 from proton import Collector, Connection, Delivery, Described, Endpoint, Event, Link, Terminus, Timeout
 from proton import Message, Handler, ProtonException, Transport, TransportException, ConnectionException
@@ -255,7 +254,7 @@ class EndpointStateHandler(Handler):
         if event.connection.remote_condition:
             self.on_connection_error(event)
         elif self.is_local_closed(event.connection):
-           self.on_connection_closed(event)
+            self.on_connection_closed(event)
         else:
             self.on_connection_closing(event)
         event.connection.close()
@@ -371,7 +370,7 @@ class EndpointStateHandler(Handler):
         self.on_transport_closed(event)
 
     def on_transport_closed(self, event):
-        if self.delegate and event.connection and self.is_local_open(event.connection):
+        if self.delegate:
             dispatch(self.delegate, 'on_disconnected', event)
 
 class MessagingHandler(Handler, Acking):
@@ -387,23 +386,6 @@ class MessagingHandler(Handler, Acking):
         self.handlers.append(EndpointStateHandler(peer_close_is_error, self))
         self.handlers.append(IncomingMessageHandler(auto_accept, self))
         self.handlers.append(OutgoingMessageHandler(auto_settle, self))
-        self.fatal_conditions = ["amqp:unauthorized-access"]
-
-    def on_transport_error(self, event):
-        """
-        Called when some error is encountered with the transport over
-        which the AMQP connection is to be established. This includes
-        authentication errors as well as socket errors.
-        """
-        if event.transport.condition:
-            if event.transport.condition.info:
-                logging.error("%s: %s" % (event.transport.condition.name, event.transport.condition.description, event.transport.condition.info))
-            else:
-                logging.error("%s: %s" % (event.transport.condition.name, event.transport.condition.description))
-            if event.transport.condition.name in self.fatal_conditions:
-                event.connection.close()
-        else:
-            logging.error("Unspecified transport error")
 
     def on_connection_error(self, event):
         """

@@ -23,7 +23,7 @@
  */
 
 #include <proton/import_export.h>
-#include <stddef.h>
+#include <sys/types.h>
 #include <stdarg.h>
 
 #ifdef __cplusplus

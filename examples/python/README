@@ -1,9 +1,7 @@
 Most (though not all) of the current examples require a broker or
 similar intermediary that supports the AMQP 1.0 protocol, allows
 anonymous connections and accepts links to and from a node named
-'examples'. A very simple broker emulating script - broker.py - is
-provided against which the examples can also be run (transactions are
-not yet supported in this script).
+'examples'.
 
 ------------------------------------------------------------------
 
@@ -25,7 +23,7 @@ desired.
 
 helloworld_direct.py
 
-A variant of the basic helloworld example, that does not use an
+A variant of the basic hellpwprld example, that does not use an
 intermediary, but listens for incoming connections itself. It
 establishes a connection to itself with a link over which a single
 message is sent. This demonstrates the ease with which a simple daemon
@@ -85,7 +83,13 @@ populate src_db, e.g. for i in `seq 1 50`; do echo "Message-$i"; done
 tx_send.py
 
 A sender that sends messages in atomic batches using local
-transactions (this example does not persist the messages in any way).
+transactions (this example does not persist the messages in anyway).
+
+tx_send_sync.py
+
+A variant of the former example that waits for all messages in a batch
+to be acknowledged before committing. Used only to work around an
+ordering issue in preoton that affected qpidd.
 
 tx_recv.py
 
@@ -101,25 +105,12 @@ will commit it.
 
 The various send/recv examples can be mixed and matched if desired.
 
-direct_send.py
-
-An example that accepts incoming links and connections over which it
-will then send out messages. Can be used with simple_recv.py or
-db_recv.py for direct, non-intermediated communication.
-
-direct_recv.py
-
-An example that accepts incoming links and connections over which it
-will then receive messages, printing out the content. Can be used with
-simple_send.py or db_send.py for direct, non-intermediated
-communication.
-
 -------------------------------------------------------------------
 
 client.py
 
 The client part of a request-response example. Sends requests and
-prints out responses. Requires an intermediary that supports the AMQP
+prints out responses. Requires an intermediary that support the AMQP
 1.0 dynamic nodes on which the responses are received. The requests
 are sent through the 'examples' node.
 
@@ -143,15 +134,6 @@ server_tx.py
 
 A variant of the server part that consumes the request and sends out
 the response atomically in a local transaction.
-
-direct_server.py
-
-A variant of the server part of a request-response example, that
-accepts incoming connections and does not need an intermediary. Much
-like the original server, it receives incoming requests, converts the
-body to uppercase and sends the result back to the indicated reply
-address. Can be used in conjunction with any of the client
-alternatives.
 
 -------------------------------------------------------------------
 

@@ -18,7 +18,6 @@
 # under the License.
 #
 
-from __future__ import print_function
 from proton_server import Server
 
 class Application(Server):
@@ -28,7 +27,7 @@ class Application(Server):
     def on_request(self, request, reply_to):
         response = request.upper()
         self.send(response, reply_to)
-        print("Request from: %s" % reply_to)
+        print "Request from: %s" % reply_to
 
 try:
     Application("localhost:5672", "examples").run()

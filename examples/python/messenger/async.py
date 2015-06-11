@@ -17,7 +17,6 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from __future__ import print_function
 import sys
 from proton import *
 
@@ -58,7 +57,7 @@ class CallbackAdapter:
         self._process_incoming()
 
     def _process_outgoing(self):
-        for t, on_status in list(self.tracked.items()):
+        for t, on_status in self.tracked.items():
             status = self.messenger.status(t)
             if status != PENDING:
                 on_status(status)
@@ -73,7 +72,7 @@ class CallbackAdapter:
                 self.messenger.accept(t)
             except:
                 ex = sys.exc_info()[1]
-                print("Exception:", ex)
+                print "Exception:", ex
                 self.messenger.reject(t)
 
     def send(self, message, on_status=None):

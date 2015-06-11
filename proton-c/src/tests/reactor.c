@@ -288,7 +288,7 @@ static void test_reactor_connect(void) {
   pn_reactor_connection(reactor, ch);
   pn_reactor_run(reactor);
   expect(srv->events, PN_CONNECTION_INIT, PN_CONNECTION_BOUND,
-         PN_CONNECTION_REMOTE_OPEN,
+         PN_TRANSPORT, PN_CONNECTION_REMOTE_OPEN,
          PN_CONNECTION_LOCAL_OPEN, PN_TRANSPORT,
          PN_CONNECTION_REMOTE_CLOSE, PN_TRANSPORT_TAIL_CLOSED,
          PN_CONNECTION_LOCAL_CLOSE, PN_TRANSPORT,
@@ -297,7 +297,7 @@ static void test_reactor_connect(void) {
   pn_free(srv->events);
   pn_decref(sh);
   expect(cli->events, PN_CONNECTION_INIT, PN_CONNECTION_LOCAL_OPEN,
-         PN_CONNECTION_BOUND,
+         PN_CONNECTION_BOUND, PN_TRANSPORT, PN_TRANSPORT,
          PN_CONNECTION_REMOTE_OPEN, PN_CONNECTION_LOCAL_CLOSE,
          PN_TRANSPORT, PN_TRANSPORT_HEAD_CLOSED,
          PN_CONNECTION_REMOTE_CLOSE, PN_TRANSPORT_TAIL_CLOSED,
@@ -440,20 +440,6 @@ static void test_reactor_schedule_handler(void) {
   pn_free(tevents);
 }
 
-static void test_reactor_schedule_cancel(void) {
-  pn_reactor_t *reactor = pn_reactor();
-  pn_handler_t *root = pn_reactor_get_handler(reactor);
-  pn_list_t *events = pn_list(PN_VOID, 0);
-  pn_handler_add(root, test_handler(reactor, events));
-  pn_task_t *task = pn_reactor_schedule(reactor, 0, NULL);
-  pn_task_cancel(task);
-  pn_reactor_run(reactor);
-  pn_reactor_free(reactor);
-  expect(events, PN_REACTOR_INIT, PN_SELECTABLE_INIT, PN_SELECTABLE_UPDATED,
-         PN_SELECTABLE_FINAL, PN_REACTOR_FINAL, END);
-  pn_free(events);
-}
-
 int main(int argc, char **argv)
 {
   test_reactor();
@@ -475,6 +461,5 @@ int main(int argc, char **argv)
   test_reactor_transfer(4*1024, 1024);
   test_reactor_schedule();
   test_reactor_schedule_handler();
-  test_reactor_schedule_cancel();
   return 0;
 }

@@ -25,9 +25,16 @@ import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+
 import org.apache.qpid.proton.amqp.Symbol;
-import org.apache.qpid.proton.engine.*;
 import org.apache.qpid.proton.amqp.transport.Open;
+import org.apache.qpid.proton.engine.Collector;
+import org.apache.qpid.proton.engine.EndpointState;
+import org.apache.qpid.proton.engine.Event;
+import org.apache.qpid.proton.engine.Link;
+import org.apache.qpid.proton.engine.ProtonJConnection;
+import org.apache.qpid.proton.engine.Session;
+import org.apache.qpid.proton.reactor.Reactor;
 
 public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
 {
@@ -66,6 +73,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
 
     private Object _context;
     private CollectorImpl _collector;
+    private Reactor _reactor;
 
     private static final Symbol[] EMPTY_SYMBOL_ARRAY = new Symbol[0];
 
@@ -77,6 +85,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
     {
     }
 
+    @Override
     public SessionImpl session()
     {
         SessionImpl session = new SessionImpl(this);
@@ -84,6 +93,11 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
 
 
         return session;
+    }
+
+    void freeSession(SessionImpl session)
+    {
+        _sessions.remove(session);
     }
 
     protected LinkNode<SessionImpl> addSessionEndpoint(SessionImpl endpoint)
@@ -149,6 +163,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
     }
 
 
+    @Override
     public Session sessionHead(final EnumSet<EndpointState> local, final EnumSet<EndpointState> remote)
     {
         if(_sessionHead == null)
@@ -163,6 +178,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         }
     }
 
+    @Override
     public Link linkHead(EnumSet<EndpointState> local, EnumSet<EndpointState> remote)
     {
         if(_linkHead == null)
@@ -190,7 +206,8 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
 
     @Override
     void doFree() {
-        for(Session session : _sessions) {
+        List<SessionImpl> sessions = new ArrayList<SessionImpl>(_sessions);
+        for(Session session : sessions) {
             session.free();
         }
         _sessions = null;
@@ -268,6 +285,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         }
     }
 
+    @Override
     public int getMaxChannels()
     {
         return _maxChannels;
@@ -284,6 +302,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         _localContainerId = localContainerId;
     }
 
+    @Override
     public DeliveryImpl getWorkHead()
     {
         return _workHead;
@@ -370,11 +389,13 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         return _properties;
     }
 
+    @Override
     public void setProperties(Map<Symbol, Object> properties)
     {
         _properties = properties;
     }
 
+    @Override
     public Map<Symbol, Object> getRemoteProperties()
     {
         return _remoteProperties;
@@ -385,6 +406,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         _remoteProperties = remoteProperties;
     }
 
+    @Override
     public String getHostname()
     {
         return _localHostname;
@@ -465,6 +487,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         _transport = transport;
     }
 
+    @Override
     public TransportImpl getTransport()
     {
         return _transport;
@@ -491,6 +514,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public DeliveryImpl next()
         {
             DeliveryImpl next = _next;
@@ -582,16 +606,19 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         }
     }
 
+    @Override
     public Object getContext()
     {
         return _context;
     }
 
+    @Override
     public void setContext(Object context)
     {
         _context = context;
     }
 
+    @Override
     public void collect(Collector collector)
     {
         _collector = (CollectorImpl) collector;
@@ -630,5 +657,14 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
     void localClose()
     {
         put(Event.Type.CONNECTION_LOCAL_CLOSE, this);
+    }
+
+    @Override
+    public Reactor getReactor() {
+        return _reactor;
+    }
+
+    public void setReactor(Reactor reactor) {
+        _reactor = reactor;
     }
 }

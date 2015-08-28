@@ -101,8 +101,6 @@ void pni_handle_open(pn_reactor_t *reactor, pn_event_t *event) {
   }
 
   pn_transport_t *transport = pn_transport();
-  pn_sasl_t *sasl = pn_sasl(transport);
-  pn_sasl_mechanisms(sasl, "ANONYMOUS");
   pn_transport_bind(transport, conn);
   pn_decref(transport);
 }
@@ -207,6 +205,9 @@ static void pni_connection_writable(pn_selectable_t *sel)
 
 static void pni_connection_error(pn_selectable_t *sel) {
   pn_reactor_t *reactor = (pn_reactor_t *) pni_selectable_get_context(sel);
+  pn_transport_t *transport = pni_transport(sel);
+  pn_transport_close_head(transport);
+  pn_transport_close_tail(transport);
   pn_selectable_terminate(sel);
   pn_reactor_update(reactor, sel);
 }

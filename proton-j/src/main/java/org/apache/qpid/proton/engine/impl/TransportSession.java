@@ -23,6 +23,7 @@ package org.apache.qpid.proton.engine.impl;
 
 import java.util.HashMap;
 import java.util.Map;
+
 import org.apache.qpid.proton.amqp.Binary;
 import org.apache.qpid.proton.amqp.UnsignedInteger;
 import org.apache.qpid.proton.amqp.transport.Disposition;
@@ -33,21 +34,26 @@ import org.apache.qpid.proton.engine.Event;
 
 class TransportSession
 {
+    private static final int HANDLE_MAX = 65535;
+
     private final TransportImpl _transport;
     private final SessionImpl _session;
     private int _localChannel = -1;
     private int _remoteChannel = -1;
     private boolean _openSent;
-    private UnsignedInteger _handleMax = UnsignedInteger.valueOf(1024);
+    private final UnsignedInteger _handleMax = UnsignedInteger.valueOf(HANDLE_MAX); //TODO: should this be configurable?
+    // This is used for the delivery-id actually stamped in each transfer frame of a given message delivery.
     private UnsignedInteger _outgoingDeliveryId = UnsignedInteger.ZERO;
+    // These are used for the session windows communicated via Begin/Flow frames
+    // and the conceptual transfer-id relating to updating them.
     private UnsignedInteger _incomingWindowSize = UnsignedInteger.ZERO;
     private UnsignedInteger _outgoingWindowSize = UnsignedInteger.ZERO;
     private UnsignedInteger _nextOutgoingId = UnsignedInteger.ONE;
     private UnsignedInteger _nextIncomingId = null;
 
-    private TransportLink[] _remoteHandleMap = new TransportLink[1024];
-    private TransportLink[] _localHandleMap = new TransportLink[1024];
-    private Map<String, TransportLink> _halfOpenLinks = new HashMap<String, TransportLink>();
+    private final Map<UnsignedInteger, TransportLink<?>> _remoteHandlesMap = new HashMap<UnsignedInteger, TransportLink<?>>();
+    private final Map<UnsignedInteger, TransportLink<?>> _localHandlesMap = new HashMap<UnsignedInteger, TransportLink<?>>();
+    private final Map<String, TransportLink> _halfOpenLinks = new HashMap<String, TransportLink>();
 
 
     private UnsignedInteger _incomingDeliveryId = null;
@@ -55,9 +61,9 @@ class TransportSession
     private UnsignedInteger _remoteOutgoingWindow;
     private UnsignedInteger _remoteNextIncomingId = _nextOutgoingId;
     private UnsignedInteger _remoteNextOutgoingId;
-    private Map<UnsignedInteger, DeliveryImpl>
+    private final Map<UnsignedInteger, DeliveryImpl>
             _unsettledIncomingDeliveriesById = new HashMap<UnsignedInteger, DeliveryImpl>();
-    private Map<UnsignedInteger, DeliveryImpl>
+    private final Map<UnsignedInteger, DeliveryImpl>
             _unsettledOutgoingDeliveriesById = new HashMap<UnsignedInteger, DeliveryImpl>();
     private int _unsettledIncomingSize;
     private boolean _endReceived;
@@ -67,6 +73,7 @@ class TransportSession
     {
         _transport = transport;
         _session = session;
+        _outgoingWindowSize = UnsignedInteger.valueOf(session.getOutgoingWindow());
     }
 
     void unbind()
@@ -129,19 +136,38 @@ class TransportSession
     public void unsetLocalChannel()
     {
         if (isLocalChannelSet()) {
+            unsetLocalHandles();
             _session.decref();
         }
         _localChannel = -1;
     }
 
+    private void unsetLocalHandles()
+    {
+        for (TransportLink<?> tl : _localHandlesMap.values())
+        {
+            tl.clearLocalHandle();
+        }
+        _localHandlesMap.clear();
+    }
+
     public void unsetRemoteChannel()
     {
         if (isRemoteChannelSet()) {
+            unsetRemoteHandles();
             _session.decref();
         }
         _remoteChannel = -1;
     }
 
+    private void unsetRemoteHandles()
+    {
+        for (TransportLink<?> tl : _remoteHandlesMap.values())
+        {
+            tl.clearRemoteHandle();
+        }
+        _remoteHandlesMap.clear();
+    }
 
     public UnsignedInteger getHandleMax()
     {
@@ -153,31 +179,13 @@ class TransportSession
         return _incomingWindowSize;
     }
 
-    public void updateWindows()
+    void updateIncomingWindow()
     {
-        // incoming window
         int size = _transport.getMaxFrameSize();
         if (size <= 0) {
             _incomingWindowSize = UnsignedInteger.valueOf(2147483647); // biggest legal value
         } else {
             _incomingWindowSize = UnsignedInteger.valueOf((_session.getIncomingCapacity() - _session.getIncomingBytes())/size);
-        }
-
-        // outgoing window
-        int outgoingDeliveries = _session.getOutgoingDeliveries();
-        if (size <= 0) {
-            _outgoingWindowSize = UnsignedInteger.valueOf(outgoingDeliveries);
-        } else {
-            int outgoingBytes = _session.getOutgoingBytes();
-            int frames = outgoingBytes/size;
-            if (outgoingBytes % size > 0) {
-                frames++;
-            }
-            if (frames > outgoingDeliveries) {
-                _outgoingWindowSize = UnsignedInteger.valueOf(frames);
-            } else {
-                _outgoingWindowSize = UnsignedInteger.valueOf(outgoingDeliveries);
-            }
         }
     }
 
@@ -203,43 +211,42 @@ class TransportSession
 
     public TransportLink getLinkFromRemoteHandle(UnsignedInteger handle)
     {
-        return _remoteHandleMap[handle.intValue()];
+        return _remoteHandlesMap.get(handle);
     }
 
     public UnsignedInteger allocateLocalHandle(TransportLink transportLink)
     {
-        for(int i = 0; i < _localHandleMap.length; i++)
+        for(int i = 0; i <= HANDLE_MAX; i++)
         {
-            if(_localHandleMap[i] == null)
+            UnsignedInteger handle = UnsignedInteger.valueOf(i);
+            if(!_localHandlesMap.containsKey(handle))
             {
-                UnsignedInteger rc = UnsignedInteger.valueOf(i);
-                _localHandleMap[i] = transportLink;
-                transportLink.setLocalHandle(rc);
-                return rc;
+                _localHandlesMap.put(handle, transportLink);
+                transportLink.setLocalHandle(handle);
+                return handle;
             }
         }
-        // TODO - error
-        return UnsignedInteger.MAX_VALUE;
+        throw new IllegalStateException("no local handle available for allocation");
     }
 
     public void addLinkRemoteHandle(TransportLink link, UnsignedInteger remoteHandle)
     {
-        _remoteHandleMap[remoteHandle.intValue()] = link;
+        _remoteHandlesMap.put(remoteHandle, link);
     }
 
     public void addLinkLocalHandle(TransportLink link, UnsignedInteger localhandle)
     {
-        _localHandleMap[localhandle.intValue()] = link;
+        _localHandlesMap.put(localhandle, link);
     }
 
     public void freeLocalHandle(UnsignedInteger handle)
     {
-        _localHandleMap[handle.intValue()] = null;
+        _localHandlesMap.remove(handle);
     }
 
     public void freeRemoteHandle(UnsignedInteger handle)
     {
-        _remoteHandleMap[handle.intValue()] = null;
+        _remoteHandlesMap.remove(handle);
     }
 
     public TransportLink resolveHalfOpenLink(String name)
@@ -332,6 +339,11 @@ class TransportSession
     public void freeLocalChannel()
     {
         unsetLocalChannel();
+    }
+
+    public void freeRemoteChannel()
+    {
+        unsetRemoteChannel();
     }
 
     private void setRemoteIncomingWindow(UnsignedInteger incomingWindow)

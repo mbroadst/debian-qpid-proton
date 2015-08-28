@@ -34,9 +34,53 @@
 
 %include <cstring.i>
 
-%cstring_output_withsize(char *OUTPUT, size_t *OUTPUT_SIZE)
 %cstring_output_allocate_size(char **ALLOC_OUTPUT, size_t *ALLOC_SIZE, free(*$1));
 %cstring_output_maxsize(char *OUTPUT, size_t MAX_OUTPUT_SIZE)
+
+%include <pybuffer.i>
+%pybuffer_binary(const char *BIN_IN, size_t BIN_LEN)
+
+// Typemap for methods that return binary data:
+// force the return type as binary - this is necessary for Python3
+%typemap(in,noblock=1,fragment=SWIG_AsVal_frag(size_t)) (char *BIN_OUT, size_t *BIN_SIZE)
+(int res, size_t n, char *buff = 0, $*2_ltype size) {
+  res = SWIG_AsVal(size_t)($input, &n);
+  if (!SWIG_IsOK(res)) {
+    %argument_fail(res, "(char *BIN_OUT, size_t *BIN_SIZE)", $symname, $argnum);
+  }
+  buff= %new_array(n+1, char);
+  $1 = %static_cast(buff, $1_ltype);
+  size = %numeric_cast(n,$*2_ltype);
+  $2 = &size;
+}
+%typemap(freearg,noblock=1,match="in")(char *BIN_OUT, size_t *BIN_SIZE) {
+  if (buff$argnum) %delete_array(buff$argnum);
+}
+%typemap(argout,noblock=1) (char *BIN_OUT, size_t *BIN_SIZE) {
+  %append_output(PyBytes_FromStringAndSize($1,*$2));
+}
+
+// Typemap for those methods that return variable length text data in a buffer
+// provided as a parameter.  If the method fails we must avoid attempting to
+// decode the contents of the buffer as it does not carry valid text data.
+%typemap(in,noblock=1,fragment=SWIG_AsVal_frag(size_t)) (char *VTEXT_OUT, size_t *VTEXT_SIZE)
+(int res, size_t n, char *buff = 0, $*2_ltype size) {
+  res = SWIG_AsVal(size_t)($input, &n);
+  if (!SWIG_IsOK(res)) {
+    %argument_fail(res, "(char *VTEXT_OUT, size_t *VTEXT_SIZE)", $symname, $argnum);
+  }
+  buff = %new_array(n+1, char);
+  $1 = %static_cast(buff, $1_ltype);
+  size = %numeric_cast(n,$*2_ltype);
+  $2 = &size;
+}
+%typemap(freearg,noblock=1,match="in")(char *VTEXT_OUT, size_t *VTEXT_SIZE) {
+  if (buff$argnum) %delete_array(buff$argnum);
+}
+%typemap(argout,noblock=1,fragment="SWIG_FromCharPtrAndSize") (char *VTEXT_OUT, size_t *VTEXT_SIZE) {
+  %append_output(SWIG_FromCharPtrAndSize($1,*$2));
+}
+
 
 // These are not used/needed in the python binding
 %ignore pn_message_get_id;
@@ -49,20 +93,21 @@
     $1.start = NULL;
     $1.size = 0;
   } else {
-    $1.start = PyString_AsString($input);
+    $1.start = PyBytes_AsString($input);
+
     if (!$1.start) {
       return NULL;
     }
-    $1.size = PyString_Size($input);
+    $1.size = PyBytes_Size($input);
   }
 }
 
 %typemap(out) pn_bytes_t {
-  $result = PyString_FromStringAndSize($1.start, $1.size);
+  $result = PyBytes_FromStringAndSize($1.start, $1.size);
 }
 
 %typemap(out) pn_delivery_tag_t {
-  $result = PyString_FromStringAndSize($1.bytes, $1.size);
+  $result = PyBytes_FromStringAndSize($1.bytes, $1.size);
 }
 
 %typemap(in) pn_uuid_t {
@@ -70,9 +115,9 @@
   if ($input == Py_None) {
     ; // Already zeroed out
   } else {
-    const char* b = PyString_AsString($input);
+    const char* b = PyBytes_AsString($input);
     if (b) {
-        memmove($1.bytes, b, (PyString_Size($input) < 16 ? PyString_Size($input) : 16));
+        memmove($1.bytes, b, (PyBytes_Size($input) < 16 ? PyBytes_Size($input) : 16));
     } else {
         return NULL;
     }
@@ -80,42 +125,45 @@
 }
 
 %typemap(out) pn_uuid_t {
-  $result = PyString_FromStringAndSize($1.bytes, 16);
+  $result = PyBytes_FromStringAndSize($1.bytes, 16);
 }
 
 %apply pn_uuid_t { pn_decimal128_t };
 
-int pn_message_encode(pn_message_t *msg, char *OUTPUT, size_t *OUTPUT_SIZE);
+int pn_message_encode(pn_message_t *msg, char *BIN_OUT, size_t *BIN_SIZE);
 %ignore pn_message_encode;
 
-ssize_t pn_link_send(pn_link_t *transport, char *STRING, size_t LENGTH);
+int pn_message_decode(pn_message_t *msg, const char *BIN_IN, size_t BIN_LEN);
+%ignore pn_message_decode;
+
+ssize_t pn_link_send(pn_link_t *transport, const char *BIN_IN, size_t BIN_LEN);
 %ignore pn_link_send;
 
 %rename(pn_link_recv) wrap_pn_link_recv;
 %inline %{
-  int wrap_pn_link_recv(pn_link_t *link, char *OUTPUT, size_t *OUTPUT_SIZE) {
-    ssize_t sz = pn_link_recv(link, OUTPUT, *OUTPUT_SIZE);
+  int wrap_pn_link_recv(pn_link_t *link, char *BIN_OUT, size_t *BIN_SIZE) {
+    ssize_t sz = pn_link_recv(link, BIN_OUT, *BIN_SIZE);
     if (sz >= 0) {
-      *OUTPUT_SIZE = sz;
+      *BIN_SIZE = sz;
     } else {
-      *OUTPUT_SIZE = 0;
+      *BIN_SIZE = 0;
     }
     return sz;
   }
 %}
 %ignore pn_link_recv;
 
-ssize_t pn_transport_push(pn_transport_t *transport, char *STRING, size_t LENGTH);
+ssize_t pn_transport_push(pn_transport_t *transport, const char *BIN_IN, size_t BIN_LEN);
 %ignore pn_transport_push;
 
 %rename(pn_transport_peek) wrap_pn_transport_peek;
 %inline %{
-  int wrap_pn_transport_peek(pn_transport_t *transport, char *OUTPUT, size_t *OUTPUT_SIZE) {
-    ssize_t sz = pn_transport_peek(transport, OUTPUT, *OUTPUT_SIZE);
+  int wrap_pn_transport_peek(pn_transport_t *transport, char *BIN_OUT, size_t *BIN_SIZE) {
+    ssize_t sz = pn_transport_peek(transport, BIN_OUT, *BIN_SIZE);
     if (sz >= 0) {
-      *OUTPUT_SIZE = sz;
+      *BIN_SIZE = sz;
     } else {
-      *OUTPUT_SIZE = 0;
+      *BIN_SIZE = 0;
     }
     return sz;
   }
@@ -141,38 +189,31 @@ ssize_t pn_transport_push(pn_transport_t *transport, char *STRING, size_t LENGTH
 %}
 %ignore pn_delivery_tag;
 
-ssize_t pn_data_decode(pn_data_t *data, char *STRING, size_t LENGTH);
+ssize_t pn_data_decode(pn_data_t *data, const char *BIN_IN, size_t BIN_LEN);
 %ignore pn_data_decode;
 
 %rename(pn_data_encode) wrap_pn_data_encode;
 %inline %{
-  int wrap_pn_data_encode(pn_data_t *data, char *OUTPUT, size_t *OUTPUT_SIZE) {
-    ssize_t sz = pn_data_encode(data, OUTPUT, *OUTPUT_SIZE);
+  int wrap_pn_data_encode(pn_data_t *data, char *BIN_OUT, size_t *BIN_SIZE) {
+    ssize_t sz = pn_data_encode(data, BIN_OUT, *BIN_SIZE);
     if (sz >= 0) {
-      *OUTPUT_SIZE = sz;
+      *BIN_SIZE = sz;
     } else {
-      *OUTPUT_SIZE = 0;
+      *BIN_SIZE = 0;
     }
     return sz;
   }
 %}
 %ignore pn_data_encode;
 
-%rename(pn_sasl_recv) wrap_pn_sasl_recv;
+%rename(pn_data_format) wrap_pn_data_format;
 %inline %{
-  int wrap_pn_sasl_recv(pn_sasl_t *sasl, char *OUTPUT, size_t *OUTPUT_SIZE) {
-    ssize_t sz = pn_sasl_recv(sasl, OUTPUT, *OUTPUT_SIZE);
-    if (sz >= 0) {
-      *OUTPUT_SIZE = sz;
-    } else {
-      *OUTPUT_SIZE = 0;
-    }
-    return sz;
+  int wrap_pn_data_format(pn_data_t *data, char *VTEXT_OUT, size_t *VTEXT_SIZE) {
+    int err = pn_data_format(data, VTEXT_OUT, VTEXT_SIZE);
+    if (err) *VTEXT_SIZE = 0;
+    return err;
   }
 %}
-%ignore pn_sasl_recv;
-
-int pn_data_format(pn_data_t *data, char *OUTPUT, size_t *OUTPUT_SIZE);
 %ignore pn_data_format;
 
 bool pn_ssl_get_cipher_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZE);
@@ -181,7 +222,14 @@ bool pn_ssl_get_cipher_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZE)
 bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZE);
 %ignore pn_ssl_get_protocol_name;
 
-int pn_ssl_get_peer_hostname(pn_ssl_t *ssl, char *OUTPUT, size_t *OUTPUT_SIZE);
+%rename(pn_ssl_get_peer_hostname) wrap_pn_ssl_get_peer_hostname;
+%inline %{
+  int wrap_pn_ssl_get_peer_hostname(pn_ssl_t *ssl, char *VTEXT_OUT, size_t *VTEXT_SIZE) {
+    int err = pn_ssl_get_peer_hostname(ssl, VTEXT_OUT, VTEXT_SIZE);
+    if (err) *VTEXT_SIZE = 0;
+    return err;
+  }
+%}
 %ignore pn_ssl_get_peer_hostname;
 
 %immutable PN_PYREF;
@@ -305,6 +353,42 @@ int pn_ssl_get_peer_hostname(pn_ssl_t *ssl, char *OUTPUT, size_t *OUTPUT_SIZE);
     SWIG_PYTHON_THREAD_END_BLOCK;
     return chandler;
   }
+
+  PN_HANDLE(PNI_PYTRACER);
+
+  void pn_pytracer(pn_transport_t *transport, const char *message) {
+    PyObject *pytracer = (PyObject *) pn_record_get(pn_transport_attachments(transport), PNI_PYTRACER);
+    SWIG_PYTHON_THREAD_BEGIN_BLOCK;
+    PyObject *pytrans = SWIG_NewPointerObj(transport, SWIGTYPE_p_pn_transport_t, 0);
+    PyObject *pymsg = PyString_FromString(message);
+    PyObject *result = PyObject_CallFunctionObjArgs(pytracer, pytrans, pymsg, NULL);
+    if (!result) {
+      PyErr_PrintEx(true);
+    }
+    Py_XDECREF(pytrans);
+    Py_XDECREF(pymsg);
+    Py_XDECREF(result);
+    SWIG_PYTHON_THREAD_END_BLOCK;
+  }
+
+  void pn_transport_set_pytracer(pn_transport_t *transport, PyObject *obj) {
+    pn_record_t *record = pn_transport_attachments(transport);
+    pn_record_def(record, PNI_PYTRACER, PN_PYREF);
+    pn_record_set(record, PNI_PYTRACER, obj);
+    pn_transport_set_tracer(transport, pn_pytracer);
+  }
+
+  PyObject *pn_transport_get_pytracer(pn_transport_t *transport) {
+    pn_record_t *record = pn_transport_attachments(transport);
+    PyObject *obj = (PyObject *)pn_record_get(record, PNI_PYTRACER);
+    if (obj) {
+      Py_XINCREF(obj);
+      return obj;
+    } else {
+      Py_RETURN_NONE;
+    }
+  }
+
 %}
 
 %include "proton/cproton.i"

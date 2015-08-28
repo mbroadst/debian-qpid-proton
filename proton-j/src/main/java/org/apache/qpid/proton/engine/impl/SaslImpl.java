@@ -83,6 +83,7 @@ public class SaslImpl implements Sasl, SaslFrameBody.SaslFrameBodyHandler<Void>,
     private Symbol _chosenMechanism;
 
     private Role _role;
+    private boolean _allowSkip = true;
 
     /**
      * @param maxFrameSize the size of the input and output buffers
@@ -352,12 +353,7 @@ public class SaslImpl implements Sasl, SaslFrameBody.SaslFrameBodyHandler<Void>,
     @Override
     public void done(SaslOutcome outcome)
     {
-        // Support current hack in C code to allow producing sasl frames for
-        // ANONYMOUS in a single chunk
-        if(_role == Role.CLIENT)
-        {
-            return;
-        }
+        checkRole(Role.SERVER);
         _outcome = outcome;
         _done = true;
         _state = classifyStateFromOutcome(outcome);
@@ -484,13 +480,22 @@ public class SaslImpl implements Sasl, SaslFrameBody.SaslFrameBodyHandler<Void>,
     @Override
     public void allowSkip(boolean allowSkip)
     {
-        //TODO: implement
-        throw new ProtonUnsupportedOperationException();
+        _allowSkip = allowSkip;
     }
 
     public TransportWrapper wrap(final TransportInput input, final TransportOutput output)
     {
-        return new SaslTransportWrapper(input, output);
+        return new SaslSniffer(new SaslTransportWrapper(input, output),
+                               new PlainTransportWrapper(output, input)) {
+            protected boolean isDeterminationMade() {
+                if (_role == Role.SERVER && _allowSkip) {
+                    return super.isDeterminationMade();
+                } else {
+                    _selectedTransportWrapper = _wrapper1;
+                    return true;
+                }
+            }
+        };
     }
 
     @Override
@@ -708,5 +713,27 @@ public class SaslImpl implements Sasl, SaslFrameBody.SaslFrameBodyHandler<Void>,
         {
             _underlyingOutput.close_head();
         }
+    }
+
+    @Override
+    public String getHostname()
+    {
+        if(_role != null)
+        {
+            checkRole(Role.SERVER);
+        }
+
+        return _hostname;
+    }
+
+    @Override
+    public void setRemoteHostname(String hostname)
+    {
+        if(_role != null)
+        {
+            checkRole(Role.CLIENT);
+        }
+
+        _hostname = hostname;
     }
 }

@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -16,7 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-import logging, os, Queue, socket, time, types
+import logging, os, socket, time, types
 from heapq import heappush, heappop, nsmallest
 from proton import Collector, Connection, ConnectionException, Delivery, Described, dispatch
 from proton import Endpoint, Event, EventBase, EventType, generate_uuid, Handler, Link, Message
@@ -28,8 +29,14 @@ from proton import unicode2utf8, utf82unicode
 
 import traceback
 from proton import WrappedHandler, _chandler, secs2millis, millis2secs, timeout2millis, millis2timeout, Selectable
-from wrapper import Wrapper, PYCTX
+from .wrapper import Wrapper, PYCTX
 from cproton import *
+from . import _compat
+
+try:
+    import Queue
+except ImportError:
+    import queue as Queue
 
 class Task(Wrapper):
 
@@ -46,10 +53,16 @@ class Task(Wrapper):
     def _init(self):
         pass
 
+    def cancel(self):
+        pn_task_cancel(self._impl)
+
 class Acceptor(Wrapper):
 
     def __init__(self, impl):
         Wrapper.__init__(self, impl)
+
+    def set_ssl_domain(self, ssl_domain):
+        pn_acceptor_set_ssl_domain(self._impl, ssl_domain._domain)
 
     def close(self):
         pn_acceptor_close(self._impl)
@@ -102,7 +115,7 @@ class Reactor(Wrapper):
         pn_reactor_yield(self._impl)
 
     def mark(self):
-        pn_reactor_mark(self._impl)
+        return pn_reactor_mark(self._impl)
 
     def _get_handler(self):
         return WrappedHandler.wrap(pn_reactor_get_handler(self._impl), self.on_error)
@@ -131,17 +144,21 @@ class Reactor(Wrapper):
     def quiesced(self):
         return pn_reactor_quiesced(self._impl)
 
-    def process(self):
-        result = pn_reactor_process(self._impl)
+    def _check_errors(self):
         if self.errors:
             for exc, value, tb in self.errors[:-1]:
                 traceback.print_exception(exc, value, tb)
             exc, value, tb = self.errors[-1]
-            raise exc, value, tb
+            _compat.raise_(exc, value, tb)
+
+    def process(self):
+        result = pn_reactor_process(self._impl)
+        self._check_errors()
         return result
 
     def stop(self):
         pn_reactor_stop(self._impl)
+        self._check_errors()
 
     def schedule(self, delay, task):
         impl = _chandler(task, self.on_error)
@@ -204,7 +221,7 @@ class EventInjector(object):
         of the reactor to which this EventInjector was added.
         """
         self.queue.put(event)
-        os.write(self.pipe[1], "!")
+        os.write(self.pipe[1], _compat.str2bin("!"))
 
     def close(self):
         """
@@ -213,7 +230,7 @@ class EventInjector(object):
         then this will be removed from the set of interest.
         """
         self._closed = True
-        os.write(self.pipe[1], "!")
+        os.write(self.pipe[1], _compat.str2bin("!"))
 
     def fileno(self):
         return self.pipe[0]
@@ -404,6 +421,11 @@ class Selector(Filter):
     def __init__(self, value, name='selector'):
         super(Selector, self).__init__({symbol(name): Described(symbol('apache.org:selector-filter:string'), value)})
 
+class DurableSubscription(ReceiverOption):
+    def apply(self, receiver):
+        receiver.source.durability = Terminus.DELIVERIES
+        receiver.source.expiry_policy = Terminus.EXPIRE_NEVER
+
 class Move(ReceiverOption):
     def apply(self, receiver):
         receiver.source.distribution_mode = Terminus.DIST_MODE_MOVE
@@ -473,26 +495,30 @@ class Connector(Handler):
         self.heartbeat = None
         self.reconnect = None
         self.ssl_domain = None
+        self.allow_insecure_mechs = True
+        self.allowed_mechs = None
 
     def _connect(self, connection):
         url = self.address.next()
         # IoHandler uses the hostname to determine where to try to connect to
-        connection.hostname = "%s:%i" % (url.host, url.port)
+        connection.hostname = "%s:%s" % (url.host, url.port)
         logging.info("connecting to %s..." % connection.hostname)
 
+        if url.username:
+            connection.user = url.username
+        if url.password:
+            connection.password = url.password
         transport = Transport()
+        sasl = transport.sasl()
+        sasl.allow_insecure_mechs = self.allow_insecure_mechs
+        if self.allowed_mechs:
+            sasl.allowed_mechs(self.allowed_mechs)
         transport.bind(connection)
         if self.heartbeat:
             transport.idle_timeout = self.heartbeat
         if url.scheme == 'amqps' and self.ssl_domain:
             self.ssl = SSL(transport, self.ssl_domain)
             self.ssl.peer_hostname = url.host
-        if url.username:
-            sasl = transport.sasl()
-            if url.username == 'anonymous':
-                sasl.mechanisms('ANONYMOUS')
-            else:
-                sasl.plain(url.username, url.password)
 
     def on_connection_local_open(self, event):
         self._connect(event.connection)
@@ -556,10 +582,10 @@ class Urls(object):
 
     def next(self):
         try:
-            return self.i.next()
+            return next(self.i)
         except StopIteration:
             self.i = iter(self.values)
-            return self.i.next()
+            return next(self.i)
 
 class SSLConfig(object):
     def __init__(self):
@@ -592,16 +618,21 @@ class Container(Reactor):
             self.global_handler = GlobalOverrides(kwargs.get('global_handler', self.global_handler))
             self.trigger = None
             self.container_id = str(generate_uuid())
+            self.allow_insecure_mechs = True
+            self.allowed_mechs = None
             Wrapper.__setattr__(self, 'subclass', self.__class__)
 
     def connect(self, url=None, urls=None, address=None, handler=None, reconnect=None, heartbeat=None, ssl_domain=None):
         """
-        Initiates the establishment of an AMQP connection.
+        Initiates the establishment of an AMQP connection. Returns an
+        instance of proton.Connection.
         """
         conn = self.connection(handler)
         conn.container = self.container_id or str(generate_uuid())
 
         connector = Connector(conn)
+        connector.allow_insecure_mechs = self.allow_insecure_mechs
+        connector.allowed_mechs = self.allowed_mechs
         conn._overrides = connector
         if url: connector.address = Urls([url])
         elif urls: connector.address = Urls(urls)
@@ -639,9 +670,27 @@ class Container(Reactor):
 
     def create_sender(self, context, target=None, source=None, name=None, handler=None, tags=None, options=None):
         """
-        Initiates the establishment of a link over which messages can be sent.
+        Initiates the establishment of a link over which messages can
+        be sent. Returns an instance of proton.Sender.
+
+        There are two patterns of use. (1) A connection can be passed
+        as the first argument, in which case the link is established
+        on that connection. In this case the target address can be
+        specified as the second argument (or as a keyword
+        argument). The source address can also be specified if
+        desired. (2) Alternatively a URL can be passed as the first
+        argument. In this case a new connection will be establised on
+        which the link will be attached. If a path is specified and
+        the target is not, then the path of the URL is used as the
+        target address.
+
+        The name of the link may be specified if desired, otherwise a
+        unique name will be generated.
+
+        Various LinkOptions can be specified to further control the
+        attachment.
         """
-        if isinstance(context, basestring):
+        if isinstance(context, _compat.STRING_TYPES):
             context = Url(context)
         if isinstance(context, Url) and not target:
             target = context.path
@@ -661,9 +710,28 @@ class Container(Reactor):
 
     def create_receiver(self, context, source=None, target=None, name=None, dynamic=False, handler=None, options=None):
         """
-        Initiates the establishment of a link over which messages can be received (aka a subscription).
+        Initiates the establishment of a link over which messages can
+        be received (aka a subscription). Returns an instance of
+        proton.Receiver.
+
+        There are two patterns of use. (1) A connection can be passed
+        as the first argument, in which case the link is established
+        on that connection. In this case the source address can be
+        specified as the second argument (or as a keyword
+        argument). The target address can also be specified if
+        desired. (2) Alternatively a URL can be passed as the first
+        argument. In this case a new connection will be establised on
+        which the link will be attached. If a path is specified and
+        the source is not, then the path of the URL is used as the
+        target address.
+
+        The name of the link may be specified if desired, otherwise a
+        unique name will be generated.
+
+        Various LinkOptions can be specified to further control the
+        attachment.
         """
-        if isinstance(context, basestring):
+        if isinstance(context, _compat.STRING_TYPES):
             context = Url(context)
         if isinstance(context, Url) and not source:
             source = context.path
@@ -702,10 +770,13 @@ class Container(Reactor):
         on the interface and port specified.
         """
         url = Url(url)
+        acceptor = self.acceptor(url.host, url.port)
         ssl_config = ssl_domain
-        if not ssl_config and url.scheme == 'amqps':
-            ssl_config = self.ssl_domain
-        return self.acceptor(url.host, url.port)
+        if not ssl_config and url.scheme == 'amqps' and self.ssl:
+            ssl_config = self.ssl.server
+        if ssl_config:
+            acceptor.set_ssl_domain(ssl_config)
+        return acceptor
 
     def do_work(self, timeout=None):
         if timeout:

@@ -21,6 +21,7 @@
 package org.apache.qpid.proton.engine.impl;
 
 import org.apache.qpid.proton.amqp.Binary;
+import org.apache.qpid.proton.amqp.transport.EmptyFrame;
 import org.apache.qpid.proton.amqp.transport.FrameBody;
 import org.apache.qpid.proton.codec.EncoderImpl;
 import org.apache.qpid.proton.codec.WritableBuffer;
@@ -51,6 +52,7 @@ class FrameWriter
     private int _frameStart = 0;
     private int _payloadStart;
     private int _performativeSize;
+    private long _framesOutput = 0;
 
     FrameWriter(EncoderImpl encoder, int maxFrameSize, byte frameType,
                 Ref<ProtocolTracer> protocolTracer, TransportImpl transport)
@@ -124,9 +126,6 @@ class FrameWriter
         _buffer.put(_frameType);
         _buffer.putShort((short) channel);
         _buffer.position(limit);
-
-        int offset = _bbuf.arrayOffset() + _frameStart;
-        //System.out.println("RAW: \"" + new Binary(_bbuf.array(), offset, frameSize) + "\"");
     }
 
     void writeFrame(int channel, Object frameBody, ByteBuffer payload,
@@ -145,25 +144,6 @@ class FrameWriter
             writePerformative(frameBody);
         }
 
-        ByteBuffer originalPayload = null;
-        if( payload!=null )
-        {
-            originalPayload = payload.duplicate();
-        }
-
-        // XXX: this is a bit of a hack but it eliminates duplicate
-        // code, further refactor will fix this
-        if (_frameType == AMQP_FRAME_TYPE) {
-            TransportFrame frame = new TransportFrame(channel, (FrameBody) frameBody, Binary.create(originalPayload));
-            _transport.log(TransportImpl.OUTGOING, frame);
-
-            ProtocolTracer tracer = _protocolTracer.get();
-            if(tracer != null)
-            {
-                tracer.sentFrame(frame);
-            }
-        }
-
         int capacity;
         if (_maxFrameSize > 0) {
             capacity = _maxFrameSize - _performativeSize;
@@ -171,6 +151,42 @@ class FrameWriter
             capacity = Integer.MAX_VALUE;
         }
         int payloadSize = Math.min(payload == null ? 0 : payload.remaining(), capacity);
+
+        ProtocolTracer tracer = _protocolTracer == null ? null : _protocolTracer.get();
+        if( tracer != null || _transport.isTraceFramesEnabled())
+        {
+            // XXX: this is a bit of a hack but it eliminates duplicate
+            // code, further refactor will fix this
+            if (_frameType == AMQP_FRAME_TYPE)
+            {
+                ByteBuffer originalPayload = null;
+                if( payload!=null )
+                {
+                    originalPayload = payload.duplicate();
+                    originalPayload.limit(payload.position() + payloadSize);
+                }
+
+                Binary payloadBin = Binary.create(originalPayload);
+                FrameBody body = null;
+                if (frameBody == null)
+                {
+                    body = new EmptyFrame();
+                }
+                else
+                {
+                    body = (FrameBody) frameBody;
+                }
+
+                TransportFrame frame = new TransportFrame(channel, body, payloadBin);
+
+                _transport.log(TransportImpl.OUTGOING, frame);
+
+                if(tracer != null)
+                {
+                    tracer.sentFrame(frame);
+                }
+            }
+        }
 
         if(payloadSize > 0)
         {
@@ -185,6 +201,8 @@ class FrameWriter
         }
 
         endFrame(channel);
+
+        _framesOutput += 1;
     }
 
     void writeFrame(Object frameBody)
@@ -210,9 +228,11 @@ class FrameWriter
         _bbuf.rewind();
         _bbuf.put(src);
 
-        //System.out.println("RAW: \"" + new Binary(dst.array(), dst.arrayOffset(), dst.position()) + "\"");
-
         return size;
     }
 
+    long getFramesOutput()
+    {
+        return _framesOutput;
+    }
 }

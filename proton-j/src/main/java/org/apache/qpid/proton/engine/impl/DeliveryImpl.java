@@ -23,6 +23,7 @@ package org.apache.qpid.proton.engine.impl;
 import java.util.Arrays;
 
 import org.apache.qpid.proton.engine.Delivery;
+import org.apache.qpid.proton.engine.Record;
 import org.apache.qpid.proton.engine.Transport;
 import org.apache.qpid.proton.amqp.transport.DeliveryState;
 
@@ -39,6 +40,7 @@ public class DeliveryImpl implements Delivery
     private DeliveryImpl _transportWorkPrev;
     boolean _transportWork;
 
+    private Record _attachments = new RecordImpl();
     private Object _context;
 
     private final byte[] _tag;
@@ -47,12 +49,7 @@ public class DeliveryImpl implements Delivery
     private boolean _settled;
     private boolean _remoteSettled;
     private DeliveryState _remoteDeliveryState;
-
-    private static final int DELIVERY_STATE_CHANGED = 1;
-    private static final int ABLE_TO_SEND = 2;
-    private static final int IO_WORK = 4;
-    private static final int DELIVERY_SETTLED = 8;
-
+    private DeliveryState _defaultDeliveryState = null;
 
     /**
      * A bit-mask representing the outstanding work on this delivery received from the transport layer
@@ -402,6 +399,11 @@ public class DeliveryImpl implements Delivery
         _context = context;
     }
 
+    public Record attachments()
+    {
+        return _attachments;
+    }
+
     @Override
     public String toString()
     {
@@ -413,6 +415,7 @@ public class DeliveryImpl implements Delivery
             .append(", _remoteSettled=").append(_remoteSettled)
             .append(", _remoteDeliveryState=").append(_remoteDeliveryState)
             .append(", _flags=").append(_flags)
+            .append(", _defaultDeliveryState=").append(_defaultDeliveryState)
             .append(", _transportDelivery=").append(_transportDelivery)
             .append(", _dataSize=").append(_dataSize)
             .append(", _complete=").append(_complete)
@@ -425,6 +428,18 @@ public class DeliveryImpl implements Delivery
     public int pending()
     {
         return _dataSize;
+    }
+
+    @Override
+    public void setDefaultDeliveryState(DeliveryState state)
+    {
+        _defaultDeliveryState = state;
+    }
+
+    @Override
+    public DeliveryState getDefaultDeliveryState()
+    {
+        return _defaultDeliveryState;
     }
 
 }

@@ -26,7 +26,6 @@
 #include <proton/type_compat.h>
 #include <proton/object.h>
 #include <stddef.h>
-#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -261,6 +260,14 @@ typedef enum {
    * type point to the relevant transport.
    */
   PN_TRANSPORT,
+
+  /**
+   * The transport has authenticated, if this is received by a server
+   * the associated transport has authenticated an incoming connection
+   * and pn_transport_get_user() can be used to obtain the authenticated
+   * user.
+   */
+  PN_TRANSPORT_AUTHENTICATED,
 
   /**
    * Indicates that a transport error has occurred. Use

@@ -26,7 +26,6 @@
 #include <proton/types.h>
 #include <proton/codec.h>
 #include <proton/error.h>
-#include <sys/types.h>
 #include <proton/type_compat.h>
 
 #ifdef __cplusplus
@@ -737,6 +736,11 @@ PN_EXTERN int pn_message_decode(pn_message_t *msg, const char *bytes, size_t siz
  * @return zero on success or an error code on failure
  */
 PN_EXTERN int pn_message_encode(pn_message_t *msg, char *bytes, size_t *size);
+
+/**
+ * Save message content into a pn_data_t object data. The data object will first be cleared.
+ */
+PN_EXTERN int pn_message_data(pn_message_t *msg, pn_data_t *data);
 
 /** @}
  */

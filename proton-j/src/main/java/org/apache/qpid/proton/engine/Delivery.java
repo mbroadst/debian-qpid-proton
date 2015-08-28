@@ -28,7 +28,7 @@ import org.apache.qpid.proton.amqp.transport.DeliveryState;
  * Whilst a message is logically a long-lived object, a delivery is short-lived - it
  * is only intended to be used by the application until it is settled and all its data has been read.
  */
-public interface Delivery
+public interface Delivery extends Extendable
 {
 
     public byte[] getTag();
@@ -108,4 +108,14 @@ public interface Delivery
 
     public boolean isBuffered();
 
+    /**
+     * Configures a default DeliveryState to be used if a
+     * received delivery is settled/freed without any disposition
+     * state having been previously applied.
+     *
+     * @param state the default delivery state
+     */
+    public void setDefaultDeliveryState(DeliveryState state);
+
+    public DeliveryState getDefaultDeliveryState();
 }

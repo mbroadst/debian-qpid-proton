@@ -97,14 +97,12 @@ typedef struct {
   bool disp;
 } pn_session_state_t;
 
-#include <proton/sasl.h>
-#include <proton/ssl.h>
-
 typedef struct pn_io_layer_t {
   ssize_t (*process_input)(struct pn_transport_t *transport, unsigned int layer, const char *, size_t);
   ssize_t (*process_output)(struct pn_transport_t *transport, unsigned int layer, char *, size_t);
+  void (*handle_error)(struct pn_transport_t* transport);
   pn_timestamp_t (*process_tick)(struct pn_transport_t *transport, unsigned int layer, pn_timestamp_t);
-  size_t (*buffered_output)(struct pn_transport_t *);  // how much output is held
+  size_t (*buffered_output)(struct pn_transport_t *transport);  // how much output is held
 } pn_io_layer_t;
 
 extern const pn_io_layer_t pni_passthru_layer;
@@ -181,8 +179,20 @@ struct pn_transport_t {
 
   pn_trace_t trace;
 
-  uint16_t channel_max;
+  /*
+   * The maximum channel number can be constrained in several ways:
+   *   1. an unchangeable limit imposed by this library code
+   *   2. a limit imposed by the remote peer when the connection is opened,
+   *      which this app must honor
+   *   3. a limit imposed by this app, which may be raised and lowered
+   *      until the OPEN frame is sent.
+   * These constraints are all summed up in channel_max, below.
+   */
+  #define PN_IMPL_CHANNEL_MAX  32767
+  uint16_t local_channel_max;
   uint16_t remote_channel_max;
+  uint16_t channel_max;
+
   bool freed;
   bool open_sent;
   bool open_rcvd;
@@ -194,6 +204,9 @@ struct pn_transport_t {
   bool posted_idle_timeout;
   bool server;
   bool halt;
+  bool auth_required;
+  bool authenticated;
+  bool encryption_required;
 
   bool referenced;
 };
@@ -213,6 +226,8 @@ struct pn_connection_t {
   pn_delivery_t *tpwork_tail;
   pn_string_t *container;
   pn_string_t *hostname;
+  pn_string_t *auth_user;
+  pn_string_t *auth_password;
   pn_data_t *offered_capabilities;
   pn_data_t *desired_capabilities;
   pn_data_t *properties;
@@ -232,6 +247,7 @@ struct pn_session_t {
   pn_sequence_t outgoing_bytes;
   pn_sequence_t incoming_deliveries;
   pn_sequence_t outgoing_deliveries;
+  pn_sequence_t outgoing_window;
   pn_session_state_t state;
 };
 
@@ -331,9 +347,8 @@ void pn_clear_modified(pn_connection_t *connection, pn_endpoint_t *endpoint);
 void pn_connection_bound(pn_connection_t *conn);
 void pn_connection_unbound(pn_connection_t *conn);
 int pn_do_error(pn_transport_t *transport, const char *condition, const char *fmt, ...);
-void pn_session_bound(pn_session_t* ssn);
+void pn_set_error_layer(pn_transport_t *transport);
 void pn_session_unbound(pn_session_t* ssn);
-void pn_link_bound(pn_link_t* link);
 void pn_link_unbound(pn_link_t* link);
 void pn_ep_incref(pn_endpoint_t *endpoint);
 void pn_ep_decref(pn_endpoint_t *endpoint);

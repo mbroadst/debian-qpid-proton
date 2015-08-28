@@ -1,3 +1,9 @@
+qpid-proton (0.10-1) UNRELEASED; urgency=medium
+
+  * Rebased on Proton 0.10
+
+ -- Matt Broadstone <mbroadst@gmail.com>  Fri, 28 Aug 2015 08:54:47 -0400
+
 qpid-proton (0.9-1trusty+mcpierce1) trusty; urgency=low
 
   * Rebased on Proton 0.9.
@@ -12,7 +18,7 @@ qpid-proton (0.7-8trusty+mcpierce1) trusty; urgency=low
 
 qpid-proton (0.7-7trusty+mcpierce1) trusty; urgency=low
 
-  * Fix FTBFS for on Jessie. 
+  * Fix FTBFS for on Jessie.
   * Removed dependency on libsslcommon2, replaced it with libssl-dev.
 
  -- Darryl L. Pierce <mcpierce@gmail.com>  Mon, 10 Nov 2014 16:28:20 -0500
@@ -67,7 +73,7 @@ qpid-proton (0.7-1.1) unstable; urgency=low
   * Added the qpid-proton-dump package.
   * Added a Debian watch file.
   * Fixed license for free getopt code from Mark Kim.
-  * Fixed the sections for packages. 
+  * Fixed the sections for packages.
 
  -- Darryl Pierce <mcpierce@gmail.com>  Fri, 09 May 2014 07:59:57 -0400
 

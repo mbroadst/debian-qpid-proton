@@ -748,6 +748,9 @@ public class MessageImpl implements ProtonJMessage
         return length - buffer.remaining();
     }
 
+    /**
+     * @deprecated This method will be removed in a future release.
+     */
     @Override
     public void load(Object data)
     {
@@ -789,6 +792,9 @@ public class MessageImpl implements ProtonJMessage
 
     }
 
+    /**
+     * @deprecated This method will be removed in a future release.
+     */
     @Override
     public Object save()
     {
@@ -821,12 +827,18 @@ public class MessageImpl implements ProtonJMessage
         }
     }
 
+    /**
+     * @deprecated This method will be removed in a future release.
+     */
     @Override
     public String toAMQPFormat(Object value)
     {
         return _parser.encode(value);
     }
 
+    /**
+     * @deprecated This method will be removed in a future release.
+     */
     @Override
     public Object parseAMQPFormat(String value)
     {
@@ -835,12 +847,18 @@ public class MessageImpl implements ProtonJMessage
         return obj;
     }
 
+    /**
+     * @deprecated This method will be removed in a future release.
+     */
     @Override
     public void setMessageFormat(MessageFormat format)
     {
         _format = format;
     }
 
+    /**
+     * @deprecated This method will be removed in a future release.
+     */
     @Override
     public MessageFormat getMessageFormat()
     {
@@ -857,6 +875,26 @@ public class MessageImpl implements ProtonJMessage
     public MessageError getError()
     {
         return MessageError.OK;
+    }
+
+    public String toString()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Message{");
+        if (_header != null) {
+            sb.append("header=");
+            sb.append(_header);
+        }
+        if (_properties != null) {
+            sb.append("properties=");
+            sb.append(_properties);
+        }
+        if (_body != null) {
+            sb.append("body=");
+            sb.append(_body);
+        }
+        sb.append("}");
+        return sb.toString();
     }
 
 }

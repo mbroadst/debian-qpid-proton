@@ -48,6 +48,7 @@ endif (PYTHONLIBS_FOUND)
 
 # Prerequisites for Ruby:
 find_program(GEM_EXE "gem")
+mark_as_advanced(GEM_EXE)
 macro(CheckRubyGem varname gemname)
   execute_process(COMMAND ${GEM_EXE} list --local ${gemname}
     OUTPUT_VARIABLE CHECK_OUTPUT)
@@ -116,7 +117,7 @@ foreach(BINDING ${BINDINGS})
     set ("DEFAULT_${UBINDING}" OFF)
   endif ()
   option("BUILD_${UBINDING}" "Build ${BINDING} language binding" ${DEFAULT_${UBINDING}})
-  if ("BUILD_${UBINDING}")
+  if (BUILD_${UBINDING})
     add_subdirectory(${BINDING})
   endif ()
 endforeach(BINDING)

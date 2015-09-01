@@ -23,7 +23,6 @@
  */
 
 #include <proton/import_export.h>
-#include <sys/types.h>
 #include <proton/type_compat.h>
 #include <proton/types.h>
 
@@ -258,6 +257,13 @@ PN_EXTERN int pn_ssl_init( pn_ssl_t *ssl,
  */
 PN_EXTERN bool pn_ssl_get_cipher_name(pn_ssl_t *ssl, char *buffer, size_t size);
 
+/** Get the SSF (security strength factor) of the Cipher that is currently in use.
+ *
+ * @param[in] ssl the ssl client/server to query.
+ * @return the ssf, note that 0 means no security.
+ */
+PN_EXTERN int pn_ssl_get_ssf(pn_ssl_t *ssl);
+
 /** Get the name of the SSL protocol that is currently in use.
  *
  * Gets a text description of the SSL protocol that is currently active, or returns FALSE if SSL
@@ -286,6 +292,10 @@ PN_EXTERN bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *buffer, size_t size
 PN_EXTERN pn_ssl_resume_status_t pn_ssl_resume_status( pn_ssl_t *ssl );
 
 /** Set the expected identity of the remote peer.
+ *
+ * By default, SSL will use the hostname associated with the connection that
+ * the transport is bound to (see ::pn_connection_set_hostname).  This method
+ * allows the caller to override that default.
  *
  * The hostname is used for two purposes: 1) when set on an SSL client, it is sent to the
  * server during the handshake (if Server Name Indication is supported), and 2) it is used
@@ -318,6 +328,14 @@ PN_EXTERN int pn_ssl_set_peer_hostname( pn_ssl_t *ssl, const char *hostname);
  * @return 0 on success.
  */
 PN_EXTERN int pn_ssl_get_peer_hostname( pn_ssl_t *ssl, char *hostname, size_t *bufsize );
+
+/** Get the subject from the peers certificate.
+ *
+ * @param[in] ssl the ssl client/server to query.
+ * @return A null terminated string representing the full subject,
+ * which is valid until the ssl object is destroyed.
+ */
+PN_EXTERN const char* pn_ssl_get_remote_subject(pn_ssl_t *ssl);
 
 /** @} */
 

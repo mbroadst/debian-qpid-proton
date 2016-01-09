@@ -159,6 +159,8 @@ class Reactor(Wrapper):
     def stop(self):
         pn_reactor_stop(self._impl)
         self._check_errors()
+        self.global_handler = None
+        self.handler = None
 
     def schedule(self, delay, task):
         impl = _chandler(task, self.on_error)
@@ -497,6 +499,7 @@ class Connector(Handler):
         self.ssl_domain = None
         self.allow_insecure_mechs = True
         self.allowed_mechs = None
+        self.sasl_enabled = True
 
     def _connect(self, connection):
         url = self.address.next()
@@ -504,15 +507,16 @@ class Connector(Handler):
         connection.hostname = "%s:%s" % (url.host, url.port)
         logging.info("connecting to %s..." % connection.hostname)
 
-        if url.username:
-            connection.user = url.username
-        if url.password:
-            connection.password = url.password
         transport = Transport()
-        sasl = transport.sasl()
-        sasl.allow_insecure_mechs = self.allow_insecure_mechs
-        if self.allowed_mechs:
-            sasl.allowed_mechs(self.allowed_mechs)
+        if self.sasl_enabled:
+            sasl = transport.sasl()
+            sasl.allow_insecure_mechs = self.allow_insecure_mechs
+            if url.username:
+                connection.user = url.username
+            if url.password:
+                connection.password = url.password
+            if self.allowed_mechs:
+                sasl.allowed_mechs(self.allowed_mechs)
         transport.bind(connection)
         if self.heartbeat:
             transport.idle_timeout = self.heartbeat
@@ -620,19 +624,50 @@ class Container(Reactor):
             self.container_id = str(generate_uuid())
             self.allow_insecure_mechs = True
             self.allowed_mechs = None
+            self.sasl_enabled = True
             Wrapper.__setattr__(self, 'subclass', self.__class__)
 
-    def connect(self, url=None, urls=None, address=None, handler=None, reconnect=None, heartbeat=None, ssl_domain=None):
+    def connect(self, url=None, urls=None, address=None, handler=None, reconnect=None, heartbeat=None, ssl_domain=None, **kwargs):
         """
         Initiates the establishment of an AMQP connection. Returns an
         instance of proton.Connection.
+
+        @param url: URL string of process to connect to
+
+        @param urls: list of URL strings of process to try to connect to
+
+        Only one of url or urls should be specified.
+
+        @param reconnect: A value of False will prevent the library
+        form automatically trying to reconnect if the underlying
+        socket is disconnected before the connection has been closed.
+
+        @param heartbeat: A value in milliseconds indicating the
+        desired frequency of heartbeats used to test the underlying
+        socket is alive.
+
+        @param ssl_domain: SSL configuration in the form of an
+        instance of proton.SSLdomain.
+
+        @param handler: a connection scoped handler that will be
+        called to process any events in the scope of this connection
+        or its child links
+
+        @param kwargs: sasl_enabled, which determines whether a sasl
+        layer is used for the connection; allowed_mechs an optional
+        list of SASL mechanisms to allow if sasl is enabled;
+        allow_insecure_mechs a flag indicating whether insecure
+        mechanisms, such as PLAIN over a non-encrypted socket, are
+        allowed. These options can also be set at container scope.
+
         """
         conn = self.connection(handler)
         conn.container = self.container_id or str(generate_uuid())
 
         connector = Connector(conn)
-        connector.allow_insecure_mechs = self.allow_insecure_mechs
-        connector.allowed_mechs = self.allowed_mechs
+        connector.allow_insecure_mechs = kwargs.get('allow_insecure_mechs', self.allow_insecure_mechs)
+        connector.allowed_mechs = kwargs.get('allowed_mechs', self.allowed_mechs)
+        connector.sasl_enabled = kwargs.get('sasl_enabled', self.sasl_enabled)
         conn._overrides = connector
         if url: connector.address = Urls([url])
         elif urls: connector.address = Urls(urls)
@@ -700,7 +735,7 @@ class Container(Reactor):
             snd.source.address = source
         if target:
             snd.target.address = target
-        if handler:
+        if handler != None:
             snd.handler = handler
         if tags:
             snd.tag_generator = tags
@@ -743,7 +778,7 @@ class Container(Reactor):
             rcv.source.dynamic = True
         if target:
             rcv.target.address = target
-        if handler:
+        if handler != None:
             rcv.handler = handler
         _apply_link_options(options, rcv)
         rcv.open()

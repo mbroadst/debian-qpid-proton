@@ -18,11 +18,11 @@
 #
 from org.apache.qpid.proton import Proton
 from org.apache.qpid.proton.amqp.messaging import AmqpValue, AmqpSequence, \
-  Data as DataSection
-from org.apache.qpid.proton.message import MessageFormat
+  Data as DataSection, ApplicationProperties, MessageAnnotations, DeliveryAnnotations
 
 from ccodec import *
 from cerror import *
+from org.apache.qpid.proton.amqp import Binary
 
 # from proton/message.h
 PN_DATA = 0
@@ -53,9 +53,13 @@ class pn_message_wrapper:
     self.id.next()
     obj2dat(self.impl.getCorrelationId(), self.correlation_id)
     self.correlation_id.next()
-    obj2dat(self.impl.getDeliveryAnnotations(), self.instructions)
-    obj2dat(self.impl.getMessageAnnotations(), self.annotations)
-    obj2dat(self.impl.getApplicationProperties(), self.properties)
+    def peel(x):
+       if x is not None:
+         return x.getValue()
+       return None
+    obj2dat(peel(self.impl.getDeliveryAnnotations()), self.instructions)
+    obj2dat(peel(self.impl.getMessageAnnotations()), self.annotations)
+    obj2dat(peel(self.impl.getApplicationProperties()), self.properties)
     bod = self.impl.getBody()
     if bod is not None: bod = bod.getValue()
     obj2dat(bod, self.body)
@@ -63,9 +67,13 @@ class pn_message_wrapper:
   def pre_encode(self):
     self.impl.setMessageId(dat2obj(self.id))
     self.impl.setCorrelationId(dat2obj(self.correlation_id))
-    self.impl.setDeliveryAnnotations(dat2obj(self.instructions))
-    self.impl.setMessageAnnotations(dat2obj(self.annotations))
-    self.impl.setApplicationProperties(dat2obj(self.properties))
+    def wrap(x, wrapper):
+      if x is not None:
+        return wrapper(x)
+      return None
+    self.impl.setDeliveryAnnotations(wrap(dat2obj(self.instructions), DeliveryAnnotations))
+    self.impl.setMessageAnnotations(wrap(dat2obj(self.annotations), MessageAnnotations))
+    self.impl.setApplicationProperties(wrap(dat2obj(self.properties), ApplicationProperties))
     bod = dat2obj(self.body)
     if self.inferred:
       if isinstance(bod, bytes):
@@ -238,40 +246,5 @@ def pn_message_encode(msg, size):
   except BufferOverflowException, e:
     return PN_OVERFLOW, None
 
-
-MESSAGE_FORMAT_J2P = {
-  MessageFormat.DATA: PN_DATA,
-  MessageFormat.TEXT: PN_TEXT,
-  MessageFormat.AMQP: PN_AMQP,
-  MessageFormat.JSON: PN_JSON
-}
-
-MESSAGE_FORMAT_P2J = {
-  PN_DATA: MessageFormat.DATA,
-  PN_TEXT: MessageFormat.TEXT,
-  PN_AMQP: MessageFormat.AMQP,
-  PN_JSON: MessageFormat.JSON
-}
-
-
-def pn_message_set_format(msg, format):
-  msg.impl.setMessageFormat(MESSAGE_FORMAT_P2J[format])
-  return 0
-
 def pn_message_clear(msg):
   msg.impl.clear()
-
-def pn_message_load(msg, data):
-  msg.impl.load(data)
-  return 0
-
-from array import array as array_type
-
-def pn_message_save(msg, size):
-  data = msg.impl.save()
-  if data is None:
-    return 0, ""
-  elif isinstance(data, array_type):
-    return 0, data.tostring()
-  else:
-    return 0, data

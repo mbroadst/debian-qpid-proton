@@ -17,11 +17,13 @@
 # under the License.
 #
 
+import sys
+from proton import _compat
 from cerror import Skipped
 from cengine import wrap, pn_connection_wrapper
 
 from org.apache.qpid.proton.reactor import Reactor
-from org.apache.qpid.proton.engine import BaseHandler
+from org.apache.qpid.proton.engine import BaseHandler, HandlerException
 
 # from proton/reactor.h
 def pn_reactor():
@@ -47,9 +49,9 @@ def pn_reactor_yield(r):
 def pn_reactor_start(r):
     r.start()
 def pn_reactor_process(r):
-    return r.process()
+    return peel_handler_exception(r.process)
 def pn_reactor_stop(r):
-    return r.stop()
+    return peel_handler_exception(r.stop)
 def pn_reactor_selectable(r):
     return r.selectable()
 def pn_reactor_connection(r, h):
@@ -61,10 +63,22 @@ def pn_reactor_mark(r):
 def pn_reactor_wakeup(r):
     return r.wakeup()
 
+def peel_handler_exception(meth):
+    try:
+        return meth()
+    except HandlerException, he:
+        cause = he.cause
+        t = getattr(cause, "type", cause.__class__)
+        info = sys.exc_info()
+        _compat.raise_(t, cause, info[2]) 
+
 def pn_handler_add(h, c):
     h.add(c)
 def pn_handler_dispatch(h, ev, et):
-    ev.impl.dispatch(h)
+    if et != None and et != ev.impl.type:
+      ev.impl.redispatch(et, h)
+    else:
+      ev.impl.dispatch(h)
 def pn_record_set_handler(r, h):
     BaseHandler.setHandler(r, h)
 def pn_record_get_handler(r):

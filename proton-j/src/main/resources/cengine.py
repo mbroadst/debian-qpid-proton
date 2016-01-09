@@ -25,7 +25,7 @@ from org.apache.qpid.proton.amqp.transaction import Coordinator
 from org.apache.qpid.proton.amqp.transport import ErrorCondition, \
   SenderSettleMode, ReceiverSettleMode
 from org.apache.qpid.proton.engine import EndpointState, Sender, \
-  Receiver, Transport as _Transport, TransportException
+  Receiver, Transport as _Transport, TransportException, EventType
 
 from java.util import EnumSet
 from compat import array, zeros
@@ -650,6 +650,12 @@ def pn_link_credit(link):
 def pn_link_queued(link):
   return link.impl.getQueued()
 
+def pn_link_get_drain(link):
+  return link.impl.getDrain();
+
+def pn_link_set_drain(link, drain):
+  return link.impl.setDrain(drain);
+
 def pn_link_unsettled(link):
   return link.impl.getUnsettled()
 
@@ -924,6 +930,10 @@ def pn_transport_unbind(trans):
   trans.impl.unbind()
   return 0
 
+def pn_transport_set_pytracer(trans, tracer):
+  import warnings
+  warnings.warn("TODO pn_transport_set_tracer", stacklevel=2)
+
 def pn_transport_trace(trans, n):
   trans.impl.trace(n)
 
@@ -1034,6 +1044,9 @@ class pn_event:
   def __init__(self, impl):
     self.impl = impl
 
+  def copy(self):
+    return pn_event(self.impl.copy())
+
 def pn_collector_peek(coll):
   ev = coll.peek()
   if ev:
@@ -1099,7 +1112,10 @@ def pn_event_context(event):
   return wrappers[pn_event_class(event)](event.impl.getContext())
 
 def pn_event_type(event):
-  return event.impl.getType()
+  return event.impl.getEventType()
+
+def pn_event_root(event):
+  return event.impl.getRootHandler()
 
 def pn_event_type_name(etype):
   return str(etype)
@@ -1109,3 +1125,15 @@ def pn_event_category(event):
 
 def pn_event_attachments(event):
   return event.impl.attachments()
+
+def pn_event_copy(event):
+  return event.copy()
+
+class TypeExtender:
+  def __init__(self, number):
+    pass
+  def next(self):
+    class CustomEvent(EventType):
+      def isValid(self):
+        return True
+    return CustomEvent()

@@ -73,6 +73,8 @@ const char *pn_type_name(pn_type_t type)
   return "<UNKNOWN>";
 }
 
+const pn_type_t PN_INVALID = (pn_type_t) -1;
+
 static inline void pni_atom_init(pn_atom_t *atom, pn_type_t type)
 {
   memset(atom, 0, sizeof(pn_atom_t));
@@ -417,10 +419,14 @@ void pn_data_clear(pn_data_t *data)
 
 static int pni_data_grow(pn_data_t *data)
 {
-  pni_nid_t new_capacity = 2 * (data->capacity ? data->capacity : 2);
-  pni_node_t *new_nodes = (pni_node_t *)realloc(data->nodes, new_capacity * sizeof(pni_node_t));
+  size_t capacity = data->capacity ? data->capacity : 2;
+  if (capacity >= PNI_NID_MAX) return PN_OUT_OF_MEMORY;
+  else if (capacity < PNI_NID_MAX/2) capacity *= 2;
+  else capacity = PNI_NID_MAX;
+
+  pni_node_t *new_nodes = (pni_node_t *)realloc(data->nodes, capacity * sizeof(pni_node_t));
   if (new_nodes == NULL) return PN_OUT_OF_MEMORY;
-  data->capacity = new_capacity;
+  data->capacity = capacity;
   data->nodes = new_nodes;
   return 0;
 }
@@ -693,7 +699,7 @@ static bool pn_scan_next(pn_data_t *data, pn_type_t *type, bool suspend)
       pn_data_exit(data);
       return pn_scan_next(data, type, suspend);
     } else {
-      *type = (pn_type_t) -1;
+      *type = PN_INVALID;
       return false;
     }
   }
@@ -1267,7 +1273,7 @@ pn_type_t pn_data_type(pn_data_t *data)
   if (node) {
     return node->atom.type;
   } else {
-    return (pn_type_t) -1;
+    return PN_INVALID;
   }
 }
 
@@ -1277,7 +1283,7 @@ pn_type_t pni_data_parent_type(pn_data_t *data)
   if (node) {
     return node->atom.type;
   } else {
-    return (pn_type_t) -1;
+    return PN_INVALID;
   }
 }
 
@@ -1719,7 +1725,7 @@ pn_type_t pn_data_get_array_type(pn_data_t *data)
   if (node && node->atom.type == PN_ARRAY) {
     return node->type;
   } else {
-    return (pn_type_t) -1;
+    return PN_INVALID;
   }
 }
 

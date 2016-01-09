@@ -1,6 +1,7 @@
 #ifndef PROTON_TYPES_H
 #define PROTON_TYPES_H 1
 
+
 /*
  *
  * Licensed to the Apache Software Foundation (ASF) under one
@@ -254,6 +255,15 @@ typedef struct pn_collector_t pn_collector_t;
  */
 
 typedef struct pn_transport_t pn_transport_t;
+
+/**
+ * An event handler
+ *
+ * A pn_handler_t is target of ::pn_event_t dispatched by the ::pn_reactor_t
+ *
+ * @ingroup reactor
+ */
+typedef struct pn_handler_t pn_handler_t;
 
 /** @}
  */

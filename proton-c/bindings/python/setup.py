@@ -191,7 +191,7 @@ class Configure(build_ext):
                               env={'PYTHONPATH': proton_base}, stdout=header)
 
         # Create a custom, temporary, version.h file mapping the
-        # major and minor versions from the downloaded tarbal. This version should
+        # major and minor versions from the downloaded tarball. This version should
         # match the ones in the bundle module
         with open(os.path.join(build_include, 'proton', 'version.h'), "wb") as ver:
             version_text = """
@@ -199,8 +199,9 @@ class Configure(build_ext):
 #define _PROTON_VERSION_H 1
 #define PN_VERSION_MAJOR %i
 #define PN_VERSION_MINOR %i
+#define PN_VERSION_POINT %i
 #endif /* version.h */
-""" % bundle.min_qpid_proton
+""" % bundle.bundled_version
             ver.write(version_text.encode('utf-8'))
 
         # Collect all the Proton C files that need to be built.
@@ -221,8 +222,13 @@ class Configure(build_ext):
                        glob.iglob(os.path.join(proton_src, '*.c'))))
 
         # Look for any optional libraries that proton needs, and adjust the
-        # source list as necessary.
+        # source list and compile flags as necessary.
         libraries = []
+
+        # -D flags (None means no value, just define)
+        macros=[('qpid_proton_EXPORTS', None),
+                ('USE_ATOLL', None),
+                ('USE_STRERROR_R', None)]
 
         # Check whether openssl is installed by poking
         # pkg-config for a minimum version 0. If it's installed, it should
@@ -237,11 +243,14 @@ class Configure(build_ext):
         cc = new_compiler(compiler=self.compiler_type)
         cc.output_dir = self.build_temp
 
-        # Some systems need to link to
-        # `rt`. Check whether `clock_getttime` is around
-        # and if not, link on rt.
-        if not cc.has_function('clock_getttime'):
-            libraries.append('rt')
+        # Some systems need to link to `rt`. Check whether `clock_gettime` is
+        # around and if librt is needed
+        if cc.has_function('clock_gettime'):
+            macros.append(('USE_CLOCK_GETTIME', None))
+        else:
+            if cc.has_function('clock_gettime', libraries=['rt']):
+                libraries.append('rt')
+                macros.append(('USE_CLOCK_GETTIME', None))
 
         # 0.10 added an implementation for cyrus. Check
         # if it is available before adding the implementation to the sources
@@ -266,11 +275,7 @@ class Configure(build_ext):
         ds_sys.customize_compiler(cc)
 
         objects = cc.compile(sources,
-                             # -D flags (None means no value, just define)
-                             macros=[('qpid_proton_EXPORTS', None),
-                                     ('USE_ATOLL', None),
-                                     ('USE_CLOCK_GETTIME', None),
-                                     ('USE_STRERROR_R', None)],
+                             macros=macros,
                              include_dirs=[build_include,
                                            proton_include,
                                            proton_src],
@@ -371,7 +376,14 @@ setup(name='python-qpid-proton',
       license="Apache Software License",
       classifiers=["License :: OSI Approved :: Apache Software License",
                    "Intended Audience :: Developers",
-                   "Programming Language :: Python"],
+                   "Programming Language :: Python",
+                   "Programming Language :: Python :: 2",
+                   "Programming Language :: Python :: 2.6",
+                   "Programming Language :: Python :: 2.7",
+                   "Programming Language :: Python :: 3",
+                   "Programming Language :: Python :: 3.3",
+                   "Programming Language :: Python :: 3.4",
+                   "Programming Language :: Python :: 3.5"],
       cmdclass=cmdclass,
       # Note well: the following extension instance is modified during the
       # installation!  If you make changes below, you may need to update the

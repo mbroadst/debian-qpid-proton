@@ -18,6 +18,10 @@
 #
 
 set (Proton_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+set (ProtonCpp_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-add_subdirectory(c/messenger)
+add_subdirectory(c)
+add_subdirectory(go)
+if (BUILD_CPP)
+  add_subdirectory(cpp)
+endif()

@@ -25,15 +25,19 @@ import java.util.Iterator;
 import org.apache.qpid.proton.engine.Connection;
 import org.apache.qpid.proton.engine.Delivery;
 import org.apache.qpid.proton.engine.Event;
+import org.apache.qpid.proton.engine.EventType;
 import org.apache.qpid.proton.engine.Handler;
 import org.apache.qpid.proton.engine.HandlerException;
 import org.apache.qpid.proton.engine.Link;
+import org.apache.qpid.proton.engine.Receiver;
 import org.apache.qpid.proton.engine.Record;
+import org.apache.qpid.proton.engine.Sender;
 import org.apache.qpid.proton.engine.Session;
 import org.apache.qpid.proton.engine.Transport;
 import org.apache.qpid.proton.reactor.Reactor;
 import org.apache.qpid.proton.reactor.Selectable;
 import org.apache.qpid.proton.reactor.Task;
+import org.apache.qpid.proton.reactor.impl.ReactorImpl;
 
 /**
  * EventImpl
@@ -43,7 +47,7 @@ import org.apache.qpid.proton.reactor.Task;
 class EventImpl implements Event
 {
 
-    Type type;
+    EventType type;
     Object context;
     EventImpl next;
     RecordImpl attachments = new RecordImpl();
@@ -53,7 +57,7 @@ class EventImpl implements Event
         this.type = null;
     }
 
-    void init(Event.Type type, Object context)
+    void init(EventType type, Object context)
     {
         this.type = type;
         this.context = context;
@@ -68,9 +72,17 @@ class EventImpl implements Event
     }
 
     @Override
-    public Type getType()
+    public EventType getEventType()
     {
         return type;
+    }
+
+    @Override
+    public Type getType() {
+        if (type instanceof Type) {
+            return (Type)type;
+        }
+        return Type.NON_CORE_EVENT;
     }
 
     @Override
@@ -80,141 +92,57 @@ class EventImpl implements Event
     }
 
     @Override
-    public void dispatch(Handler handler)
-    {
-        try {
-            switch (type) {
-            case CONNECTION_INIT:
-                handler.onConnectionInit(this);
-                break;
-            case CONNECTION_LOCAL_OPEN:
-                handler.onConnectionLocalOpen(this);
-                break;
-            case CONNECTION_REMOTE_OPEN:
-                handler.onConnectionRemoteOpen(this);
-                break;
-            case CONNECTION_LOCAL_CLOSE:
-                handler.onConnectionLocalClose(this);
-                break;
-            case CONNECTION_REMOTE_CLOSE:
-                handler.onConnectionRemoteClose(this);
-                break;
-            case CONNECTION_BOUND:
-                handler.onConnectionBound(this);
-                break;
-            case CONNECTION_UNBOUND:
-                handler.onConnectionUnbound(this);
-                break;
-            case CONNECTION_FINAL:
-                handler.onConnectionFinal(this);
-                break;
-            case SESSION_INIT:
-                handler.onSessionInit(this);
-                break;
-            case SESSION_LOCAL_OPEN:
-                handler.onSessionLocalOpen(this);
-                break;
-            case SESSION_REMOTE_OPEN:
-                handler.onSessionRemoteOpen(this);
-                break;
-            case SESSION_LOCAL_CLOSE:
-                handler.onSessionLocalClose(this);
-                break;
-            case SESSION_REMOTE_CLOSE:
-                handler.onSessionRemoteClose(this);
-                break;
-            case SESSION_FINAL:
-                handler.onSessionFinal(this);
-                break;
-            case LINK_INIT:
-                handler.onLinkInit(this);
-                break;
-            case LINK_LOCAL_OPEN:
-                handler.onLinkLocalOpen(this);
-                break;
-            case LINK_REMOTE_OPEN:
-                handler.onLinkRemoteOpen(this);
-                break;
-            case LINK_LOCAL_DETACH:
-                handler.onLinkLocalDetach(this);
-                break;
-            case LINK_REMOTE_DETACH:
-                handler.onLinkRemoteDetach(this);
-                break;
-            case LINK_LOCAL_CLOSE:
-                handler.onLinkLocalClose(this);
-                break;
-            case LINK_REMOTE_CLOSE:
-                handler.onLinkRemoteClose(this);
-                break;
-            case LINK_FLOW:
-                handler.onLinkFlow(this);
-                break;
-            case LINK_FINAL:
-                handler.onLinkFinal(this);
-                break;
-            case DELIVERY:
-                handler.onDelivery(this);
-                break;
-            case TRANSPORT:
-                handler.onTransport(this);
-                break;
-            case TRANSPORT_ERROR:
-                handler.onTransportError(this);
-                break;
-            case TRANSPORT_HEAD_CLOSED:
-                handler.onTransportHeadClosed(this);
-                break;
-            case TRANSPORT_TAIL_CLOSED:
-                handler.onTransportTailClosed(this);
-                break;
-            case TRANSPORT_CLOSED:
-                handler.onTransportClosed(this);
-                break;
-            case REACTOR_FINAL:
-                handler.onReactorFinal(this);
-                break;
-            case REACTOR_QUIESCED:
-                handler.onReactorQuiesced(this);
-                break;
-            case REACTOR_INIT:
-                handler.onReactorInit(this);
-                break;
-            case SELECTABLE_ERROR:
-                handler.onSelectableError(this);
-                break;
-            case SELECTABLE_EXPIRED:
-                handler.onSelectableExpired(this);
-                break;
-            case SELECTABLE_FINAL:
-                handler.onSelectableFinal(this);
-                break;
-            case SELECTABLE_INIT:
-                handler.onSelectableInit(this);
-                break;
-            case SELECTABLE_READABLE:
-                handler.onSelectableReadable(this);
-                break;
-            case SELECTABLE_UPDATED:
-                handler.onSelectableWritable(this);
-                break;
-            case SELECTABLE_WRITABLE:
-                handler.onSelectableWritable(this);
-                break;
-            case TIMER_TASK:
-                handler.onTimerTask(this);
-                break;
-            default:
-                handler.onUnhandled(this);
-                break;
-            }
-        } catch(RuntimeException runtimeException) {
-            throw new HandlerException(handler, runtimeException);
-        }
+    public Handler getRootHandler() {
+        return ReactorImpl.ROOT.get(this);
+    }
 
-        Iterator<Handler> children = handler.children();
+    private Handler delegated = null;
+
+    @Override
+    public void dispatch(Handler handler) throws HandlerException
+    {
+        Handler old_delegated = delegated;
+        try {
+            delegated = handler;
+            try {
+                handler.handle(this);
+            } catch(HandlerException handlerException) {
+                throw handlerException;
+            } catch(RuntimeException runtimeException) {
+                throw new HandlerException(handler, runtimeException);
+            }
+            delegate();
+        } finally {
+            delegated = old_delegated;
+        }
+    }
+
+    @Override
+    public void delegate() throws HandlerException
+    {
+        if (delegated == null) {
+            return; // short circuit
+        }
+        Iterator<Handler> children = delegated.children();
+        delegated = null;
         while(children.hasNext()) {
             dispatch(children.next());
+        }
+    }
+
+    @Override
+    public void redispatch(EventType as_type, Handler handler) throws HandlerException 
+    {
+        if (!as_type.isValid()) {
+            throw new IllegalArgumentException("Can only redispatch valid event types");
+        }
+        EventType old = type;
+        try {
+            type = as_type;
+            dispatch(handler);
+        }
+        finally {
+            type = old;
         }
     }
 
@@ -267,6 +195,34 @@ class EventImpl implements Event
     }
 
     @Override
+    public Sender getSender()
+    {
+        if (context instanceof Sender) {
+            return (Sender) context;
+        } else {
+            Link link = getLink();
+            if (link instanceof Sender) {
+                return (Sender) link;
+            }
+            return null;
+        }
+    }
+
+    @Override
+    public Receiver getReceiver()
+    {
+        if (context instanceof Receiver) {
+            return (Receiver) context;
+        } else {
+            Link link = getLink();
+            if (link instanceof Receiver) {
+                return (Receiver) link;
+            }
+            return null;
+        }
+    }
+
+    @Override
     public Delivery getDelivery()
     {
         if (context instanceof Delivery) {
@@ -281,6 +237,8 @@ class EventImpl implements Event
     {
         if (context instanceof Transport) {
             return (Transport) context;
+        } else if (context instanceof Connection) {
+        	return ((Connection)context).getTransport();	
         } else {
             return null;
         }
@@ -345,5 +303,6 @@ class EventImpl implements Event
     {
         return "EventImpl{" + "type=" + type + ", context=" + context + '}';
     }
+
 
 }

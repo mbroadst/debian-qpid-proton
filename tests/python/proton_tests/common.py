@@ -18,6 +18,15 @@
 #
 
 from unittest import TestCase
+try:
+  from unittest import SkipTest
+except:
+  try:
+    from unittest2 import SkipTest
+  except:
+    class SkipTest(Exception):
+      pass
+
 from random import randint
 from threading import Thread
 from socket import socket, AF_INET, SOCK_STREAM
@@ -147,7 +156,11 @@ def ensureCanTestExtendedSASL():
   if not createdSASLDb:
     raise Skipped("Can't Test Extended SASL: Couldn't create auth db")
 
+class DefaultConfig:
+    defines = {}
+    
 class Test(TestCase):
+  config = DefaultConfig()
 
   def __init__(self, name):
     super(Test, self).__init__(name)
@@ -176,7 +189,7 @@ class Test(TestCase):
     return int(self.default("verbose", 0))
 
 
-class Skipped(Exception):
+class Skipped(SkipTest):
   skipped = True
 
 

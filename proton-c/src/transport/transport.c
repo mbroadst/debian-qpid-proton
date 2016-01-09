@@ -141,7 +141,7 @@ static ssize_t pn_input_read_amqp_header(pn_transport_t *transport, unsigned int
 static ssize_t pn_input_read_amqp(pn_transport_t *transport, unsigned int layer, const char *bytes, size_t available);
 static ssize_t pn_output_write_amqp_header(pn_transport_t *transport, unsigned int layer, char *bytes, size_t available);
 static ssize_t pn_output_write_amqp(pn_transport_t *transport, unsigned int layer, char *bytes, size_t available);
-static void pn_error_amqp(pn_transport_t *transport);
+static void pn_error_amqp(pn_transport_t *transport, unsigned int layer);
 static pn_timestamp_t pn_tick_amqp(pn_transport_t *transport, unsigned int layer, pn_timestamp_t now);
 
 static ssize_t pn_io_layer_input_autodetect(pn_transport_t *transport, unsigned int layer, const char *bytes, size_t available);
@@ -612,7 +612,6 @@ static void pn_transport_finalize(void *object)
   // we may have posted events, so stay alive until they are processed
   if (pn_refcount(transport) > 0) return;
 
-  pn_free(transport->context);
   pn_ssl_free(transport);
   pn_sasl_free(transport);
   free(transport->remote_container);
@@ -632,6 +631,7 @@ static void pn_transport_finalize(void *object)
   pn_data_free(transport->args);
   pn_data_free(transport->output_args);
   pn_buffer_free(transport->frame);
+  pn_free(transport->context);
   free(transport->output);
 }
 
@@ -1100,7 +1100,7 @@ int pn_do_error(pn_transport_t *transport, const char *condition, const char *fm
 
   for (int i = 0; i<PN_IO_LAYER_CT; ++i) {
     if (transport->io_layers[i] && transport->io_layers[i]->handle_error)
-      transport->io_layers[i]->handle_error(transport);
+        transport->io_layers[i]->handle_error(transport, i);
   }
 
   pni_close_tail(transport);
@@ -1356,6 +1356,8 @@ int pn_do_attach(pn_transport_t *transport, uint8_t frame_type, uint16_t channel
     if (err) return err;
     if (code == COORDINATOR) {
       pn_terminus_set_type(rtgt, PN_COORDINATOR);
+    } else if (code == TARGET) {
+      pn_terminus_set_type(rtgt, PN_TARGET);
     } else {
       pn_terminus_set_type(rtgt, PN_UNSPECIFIED);
     }
@@ -2413,7 +2415,7 @@ static int pni_process(pn_transport_t *transport)
 
 #define AMQP_HEADER ("AMQP\x00\x01\x00\x00")
 
-static void pn_error_amqp(pn_transport_t* transport)
+static void pn_error_amqp(pn_transport_t* transport, unsigned int layer)
 {
   if (!transport->close_sent) {
     if (!transport->open_sent) {
@@ -2529,7 +2531,7 @@ static ssize_t pn_output_write_amqp_header(pn_transport_t* transport, unsigned i
   assert(available >= 8);
   memmove(bytes, AMQP_HEADER, 8);
   if (pn_condition_is_set(&transport->condition)) {
-    pn_error_amqp(transport);
+      pn_error_amqp(transport, layer);
     transport->io_layers[layer] = &pni_error_layer;
     return pn_dispatcher_output(transport, bytes+8, available-8) + 8;
   }

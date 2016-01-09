@@ -115,6 +115,8 @@ except NameError:
 
 VERSION_MAJOR = PN_VERSION_MAJOR
 VERSION_MINOR = PN_VERSION_MINOR
+VERSION_POINT = PN_VERSION_POINT
+VERSION = (VERSION_MAJOR, VERSION_MINOR, VERSION_POINT)
 API_LANGUAGE = "C"
 IMPLEMENTATION_LANGUAGE = "C"
 
@@ -1134,13 +1136,13 @@ The group-id for any replies.
     if link.is_sender: return None
     dlv = link.current
     if not dlv or dlv.partial: return None
-    encoded = link.recv(dlv.pending)
+    dlv.encoded = link.recv(dlv.pending)
     link.advance()
     # the sender has already forgotten about the delivery, so we might
     # as well too
     if link.remote_snd_settle_mode == Link.SND_SETTLED:
       dlv.settle()
-    self.decode(encoded)
+    self.decode(dlv.encoded)
     return dlv
 
   def __repr2__(self):
@@ -3629,10 +3631,20 @@ class Collector:
     pn_collector_free(self._impl)
     del self._impl
 
+if "TypeExtender" not in globals():
+  class TypeExtender:
+    def __init__(self, number):
+      self.number = number
+    def next(self):
+      try:
+        return self.number
+      finally:
+        self.number += 1
+
 class EventType(object):
 
   _lock = threading.Lock()
-  _extended = 10000
+  _extended = TypeExtender(10000)
   TYPES = {}
 
   def __init__(self, name=None, number=None, method=None):
@@ -3644,8 +3656,7 @@ class EventType(object):
         name = pn_event_type_name(number)
 
       if number is None:
-        number = EventType._extended
-        EventType._extended += 1
+        number = self._extended.next()
 
       if method is None:
         method = "on_%s" % name
@@ -3757,6 +3768,10 @@ class Event(Wrapper, EventBase):
   def _init(self):
     pass
 
+  def copy(self):
+    copy = pn_event_copy(self._impl)
+    return Event.wrap(copy)
+
   @property
   def clazz(self):
     cls = pn_event_class(self._impl)
@@ -3764,6 +3779,10 @@ class Event(Wrapper, EventBase):
       return pn_class_name(cls)
     else:
       return None
+
+  @property
+  def root(self):
+    return WrappedHandler.wrap(pn_event_root(self._impl))
 
   @property
   def context(self):
@@ -3837,7 +3856,16 @@ class Event(Wrapper, EventBase):
   def __repr__(self):
     return "%s(%s)" % (self.type, self.context)
 
+class LazyHandlers(object):
+  def __get__(self, obj, clazz):
+    if obj is None:
+      return self
+    ret = []
+    obj.__dict__['handlers'] = ret
+    return ret
+
 class Handler(object):
+  handlers = LazyHandlers()
 
   def on_unhandled(self, method, *args):
     pass
@@ -3858,19 +3886,53 @@ class _cadapter:
     else:
       self.on_error((exc, val, tb))
 
-class WrappedHandler(Wrapper):
+class WrappedHandlersChildSurrogate:
+    def __init__(self, delegate):
+        self.handlers = []
+        self.delegate = weakref.ref(delegate)
 
-  @staticmethod
-  def wrap(impl, on_error=None):
+    def on_unhandled(self, method, event):
+        delegate = self.delegate()
+        if delegate:
+            dispatch(delegate, method, event)
+    
+
+class WrappedHandlersProperty(object):
+    def __get__(self, obj, clazz):
+        if obj is None:
+            return None
+        return self.surrogate(obj).handlers
+    
+    def __set__(self, obj, value):
+        self.surrogate(obj).handlers = value
+        
+    def surrogate(self, obj):
+        key = "_surrogate"
+        objdict = obj.__dict__
+        surrogate = objdict.get(key, None)
+        if surrogate is None:
+            objdict[key] = surrogate = WrappedHandlersChildSurrogate(obj)
+            obj.add(surrogate)
+        return surrogate
+
+class WrappedHandler(Wrapper):
+    
+  handlers = WrappedHandlersProperty()
+
+  @classmethod
+  def wrap(cls, impl, on_error=None):
     if impl is None:
       return None
     else:
-      handler = WrappedHandler(impl)
+      handler = cls(impl)
       handler.__dict__["on_error"] = on_error
       return handler
-
+  
   def __init__(self, impl_or_constructor):
     Wrapper.__init__(self, impl_or_constructor)
+    if list(self.__class__.__mro__).index(WrappedHandler) > 1:
+      # instantiate the surrogate
+      self.handlers.extend([])
 
   def _on_error(self, info):
     on_error = getattr(self, "on_error", None)
@@ -4033,6 +4095,7 @@ __all__ = [
            "Described",
            "Endpoint",
            "Event",
+           "EventType",
            "Handler",
            "Link",
            "Message",

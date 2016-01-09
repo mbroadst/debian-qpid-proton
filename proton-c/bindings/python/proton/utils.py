@@ -18,7 +18,7 @@
 #
 import collections, socket, time, threading
 
-from proton import ConnectionException, Delivery, Endpoint, Handler, LinkException, Message
+from proton import ConnectionException, Delivery, Endpoint, Handler, Link, LinkException, Message
 from proton import ProtonException, Timeout, Url
 from proton.reactor import Container
 from proton.handlers import MessagingHandler, IncomingMessageHandler
@@ -32,10 +32,12 @@ class BlockingLink(object):
                              msg="Opening link %s" % link.name)
         self._checkClosed()
 
-    def _waitForClosed(self, timeout=1):
-        self.connection.wait(lambda: self.link.state & Endpoint.REMOTE_CLOSED,
-                             timeout=timeout,
-                             msg="Opening link %s" % self.link.name)
+    def _waitForClose(self, timeout=1):
+        try:
+            self.connection.wait(lambda: self.link.state & Endpoint.REMOTE_CLOSED,
+                                 timeout=timeout,
+                                 msg="Opening link %s" % self.link.name)
+        except Timeout as e: pass
         self._checkClosed()
 
     def _checkClosed(self):
@@ -58,6 +60,9 @@ class SendException(ProtonException):
     def __init__(self, state):
         self.state = state
 
+def _is_settled(delivery):
+    return delivery.settled or delivery.link.snd_settle_mode == Link.SND_SETTLED
+
 class BlockingSender(BlockingLink):
     def __init__(self, connection, sender):
         super(BlockingSender, self).__init__(connection, sender)
@@ -70,7 +75,7 @@ class BlockingSender(BlockingLink):
 
     def send(self, msg, timeout=False, error_states=None):
         delivery = self.link.send(msg)
-        self.connection.wait(lambda: delivery.settled, msg="Sending on sender %s" % self.link.name, timeout=timeout)
+        self.connection.wait(lambda: _is_settled(delivery), msg="Sending on sender %s" % self.link.name, timeout=timeout)
         bad = error_states
         if bad is None:
             bad = [Delivery.REJECTED, Delivery.RELEASED]
@@ -186,6 +191,7 @@ class BlockingConnection(Handler):
     A synchronous style connection wrapper.
     """
     def __init__(self, url, timeout=None, container=None, ssl_domain=None, heartbeat=None):
+        self.disconnected = False
         self.timeout = timeout
         self.container = container or Container()
         self.container.timeout = self.timeout
@@ -214,6 +220,9 @@ class BlockingConnection(Handler):
         self.wait(lambda: not (self.conn.state & Endpoint.REMOTE_ACTIVE),
                   msg="Closing connection")
 
+    def _is_closed(self):
+        return self.conn.state & (Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED)
+
     def run(self):
         """ Hand control over to the event loop (e.g. if waiting indefinitely for incoming messages) """
         while self.container.process(): pass
@@ -223,14 +232,14 @@ class BlockingConnection(Handler):
         if timeout is False:
             timeout = self.timeout
         if timeout is None:
-            while not condition():
+            while not condition() and not self.disconnected:
                 self.container.process()
         else:
             container_timeout = self.container.timeout
             self.container.timeout = timeout
             try:
                 deadline = time.time() + timeout
-                while not condition():
+                while not condition() and not self.disconnected:
                     self.container.process()
                     if deadline < time.time():
                         txt = "Connection %s timed out" % self.url
@@ -238,6 +247,11 @@ class BlockingConnection(Handler):
                         raise Timeout(txt)
             finally:
                 self.container.timeout = container_timeout
+        if self.disconnected or self._is_closed():
+            self.container.stop()
+            self.conn.handler = None # break cyclical reference
+        if self.disconnected and not self._is_closed():
+            raise ConnectionException("Connection %s disconnected" % self.url)
 
     def on_link_remote_close(self, event):
         if event.link.state & Endpoint.LOCAL_ACTIVE:
@@ -252,9 +266,11 @@ class BlockingConnection(Handler):
     def on_transport_tail_closed(self, event):
         self.on_transport_closed(event)
 
+    def on_transport_head_closed(self, event):
+        self.on_transport_closed(event)
+
     def on_transport_closed(self, event):
-        if event.connection.state & Endpoint.LOCAL_ACTIVE:
-            raise ConnectionException("Connection %s disconnected" % self.url);
+        self.disconnected = True
 
 class AtomicCount(object):
     def __init__(self, start=0, step=1):

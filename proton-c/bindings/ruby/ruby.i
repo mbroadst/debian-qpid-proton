@@ -30,6 +30,14 @@
 #include <proton/handlers.h>
 %}
 
+/*
+NOTE: According to ccache-swig man page: "Known problems are using
+preprocessor directives within %inline blocks and the use of ’#pragma SWIG’."
+This includes using macros in an %inline section.
+
+Keep preprocessor directives and macro expansions in the normal header section.
+*/
+
 %include <cstring.i>
 
 %cstring_output_withsize(char *OUTPUT, size_t *OUTPUT_SIZE)
@@ -463,11 +471,8 @@ bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZ
 %ignore pn_messenger_recv;
 %ignore pn_messenger_work;
 
-%inline %{
-
-#define CID_Pn_rbkey CID_pn_void
-
-typedef struct {
+%{
+typedef struct Pn_rbkey_t {
   void *registry;
   char *method;
   char *key_value;
@@ -490,11 +495,28 @@ void Pn_rbkey_finalize(Pn_rbkey_t *rbkey) {
   }
 }
 
+/* NOTE: no macro or preprocessor definitions in %inline sections */
+#define CID_Pn_rbkey CID_pn_void
 #define Pn_rbkey_inspect NULL
 #define Pn_rbkey_compare NULL
 #define Pn_rbkey_hashcode NULL
 
-PN_CLASSDEF(Pn_rbkey)
+pn_class_t* Pn_rbkey__class(void) {
+    static pn_class_t clazz = PN_CLASS(Pn_rbkey);
+    return &clazz;
+}
+
+Pn_rbkey_t *Pn_rbkey_new(void) {
+    return (Pn_rbkey_t *) pn_class_new(Pn_rbkey__class(), sizeof(Pn_rbkey_t));
+}
+%}
+
+pn_class_t* Pn_rbkey__class(void);
+Pn_rbkey_t *Pn_rbkey_new(void);
+
+%inline %{
+
+Pn_rbkey_t *Pn_rbkey_new(void);
 
 void Pn_rbkey_set_registry(Pn_rbkey_t *rbkey, void *registry) {
   assert(rbkey);

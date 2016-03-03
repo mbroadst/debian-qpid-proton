@@ -20,28 +20,27 @@
  */
 
 #include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
+#include "proton/event.hpp"
+#include "proton/handler.hpp"
 #include "proton/url.hpp"
 
 #include <iostream>
 
-class hello_world : public proton::messaging_handler {
+class hello_world : public proton::handler {
   private:
     proton::url url;
 
   public:
-
     hello_world(const proton::url& u) : url(u) {}
 
     void on_start(proton::event &e) {
-        proton::connection& conn = e.container().connect(url);
+        proton::connection conn = e.container().connect(url);
         conn.open_receiver(url.path());
         conn.open_sender(url.path());
     }
 
     void on_sendable(proton::event &e) {
-        proton::message m;
-        m.body("Hello World!");
+        proton::message m("Hello World!");
         e.sender().send(m);
         e.sender().close();
     }
@@ -55,11 +54,14 @@ class hello_world : public proton::messaging_handler {
 int main(int argc, char **argv) {
     try {
         std::string url = argc > 1 ? argv[1] : "127.0.0.1:5672/examples";
+
         hello_world hw(url);
         proton::container(hw).run();
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

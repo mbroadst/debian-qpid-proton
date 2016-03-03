@@ -21,21 +21,26 @@ find_package(ProtonCpp REQUIRED)
 
 include_directories(${ProtonCpp_INCLUDE_DIRS})
 
-foreach(example
-    broker
-    helloworld
-    helloworld_blocking
-    helloworld_direct
-    simple_recv
-    simple_send
-    direct_recv
-    direct_send
-    sync_client
-    client
-    server
-    server_direct
-    recurring_timer
-    encode_decode)
+set(examples
+  broker
+  helloworld
+  helloworld_direct
+  simple_recv
+  simple_send
+  direct_recv
+  direct_send
+  client
+  server
+  server_direct
+  recurring_timer
+  connection_options
+  queue_browser
+  selected_recv
+  ssl
+  ssl_client_cert
+  encode_decode)
+
+foreach(example ${examples})
   add_executable(${example} ${example}.cpp)
   target_link_libraries(${example} ${ProtonCpp_LIBRARIES})
   set_source_files_properties(${example}.cpp PROPERTIES COMPILE_FLAGS "${CXX_WARNING_FLAGS}")
@@ -53,4 +58,6 @@ else(WIN32)
 endif(WIN32)
 
 add_test(NAME cpp_example_test
-  COMMAND ${PYTHON_EXECUTABLE} ${env_py} -- "PATH=${test_path}" "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" ${VALGRIND_ENV} ${PYTHON_EXECUTABLE} -m unittest -v example_test)
+  COMMAND ${PYTHON_EXECUTABLE} ${env_py} -- "PATH=${test_path}" ${VALGRIND_ENV} ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/example_test.py -v)
+
+add_subdirectory(engine)

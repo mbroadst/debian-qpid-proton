@@ -23,7 +23,8 @@
 
 #include "proton/container.hpp"
 #include "proton/acceptor.hpp"
-#include "proton/messaging_handler.hpp"
+#include "proton/event.hpp"
+#include "proton/handler.hpp"
 #include "proton/link.hpp"
 #include "proton/url.hpp"
 #include "proton/value.hpp"
@@ -31,57 +32,62 @@
 #include <iostream>
 #include <map>
 
-class direct_recv : public proton::messaging_handler {
+class direct_recv : public proton::handler {
   private:
     proton::url url;
-    int expected;
-    int received;
-    proton::counted_ptr<proton::acceptor> acceptor;
+    uint64_t expected;
+    uint64_t received;
+    proton::acceptor acceptor;
 
   public:
     direct_recv(const std::string &s, int c) : url(s), expected(c), received(0) {}
 
     void on_start(proton::event &e) {
-        acceptor = e.container().listen(url).ptr();
+        acceptor = e.container().listen(url);
         std::cout << "direct_recv listening on " << url << std::endl;
     }
 
     void on_message(proton::event &e) {
         proton::message& msg = e.message();
-        proton::value id = msg.id();
-        if (id.type() == proton::ULONG) {
-            if (id.get<int>() < received)
-                return; // ignore duplicate
+        
+        if (msg.id().get<uint64_t>() < received) {
+            return; // Ignore duplicate
         }
+        
         if (expected == 0 || received < expected) {
             std::cout << msg.body() << std::endl;
             received++;
         }
+        
         if (received == expected) {
             e.receiver().close();
             e.connection().close();
-            if (acceptor) acceptor->close();
+
+            if (!!acceptor) acceptor.close();
         }
     }
 };
 
 int main(int argc, char **argv) {
-    // Command line options
     std::string address("127.0.0.1:5672/examples");
     int message_count = 100;
     options opts(argc, argv);
+
     opts.add_value(address, 'a', "address", "listen and receive on URL", "URL");
     opts.add_value(message_count, 'm', "messages", "receive COUNT messages", "COUNT");
+
     try {
         opts.parse();
+
         direct_recv recv(address, message_count);
         proton::container(recv).run();
+
         return 0;
     } catch (const bad_option& e) {
         std::cout << opts << std::endl << e.what() << std::endl;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }
-

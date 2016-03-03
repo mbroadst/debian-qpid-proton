@@ -20,16 +20,35 @@
 #include "proton/types.hpp"
 #include <proton/codec.h>
 #include <ostream>
+#include <iomanip>
 #include <algorithm>
+#include <sstream>
 
 namespace proton {
 
 namespace {
 inline std::ostream& print_segment(std::ostream& o, const amqp_uuid& u, size_t begin, size_t end, const char* sep="") {
-    for (const char* p = &u[begin]; p < &u[end]; ++p) o << *p;
+    for (const char* p = &u[begin]; p < &u[end]; ++p)
+        o << std::setw(2) << std::setfill('0') << (int(*p) & 0xff);
     return o << sep;
 }
+
+std::string mismatch_message(type_id want, type_id got, const std::string& msg=std::string()) {
+    std::ostringstream s;
+    s << "want " << want << " got " << got;
+    if (!msg.empty()) s << ": " << msg;
+    return s.str();
 }
+} // namespace
+
+type_error::type_error(type_id want_, type_id got_, const std::string &msg)
+    : decode_error(mismatch_message(want_, got_, msg)), want(want_), got(got_)
+{}
+
+std::ostream& operator<<(std::ostream& o, const amqp_decimal32&) { return o << "<decimal32>"; }
+std::ostream& operator<<(std::ostream& o, const amqp_decimal64&) { return o << "<decimal64>"; }
+std::ostream& operator<<(std::ostream& o, const amqp_decimal128&) { return o << "<decimal128>"; }
+std::ostream& operator<<(std::ostream& o, const amqp_timestamp& ts) { return o << "timestamp:" << ts.milliseconds; }
 
 std::ostream& operator<<(std::ostream& o, const amqp_uuid& u) {
     std::ios_base::fmtflags ff = o.flags();
@@ -45,8 +64,8 @@ std::ostream& operator<<(std::ostream& o, const amqp_uuid& u) {
 
 std::string type_name(type_id t) {
     switch (t) {
-      case NULL_: return "null";
-      case BOOL: return "bool";
+      case NULL_TYPE: return "null";
+      case BOOLEAN: return "boolean";
       case UBYTE: return "ubyte";
       case BYTE: return "byte";
       case USHORT: return "ushort";
@@ -70,15 +89,23 @@ std::string type_name(type_id t) {
       case ARRAY: return "array";
       case LIST: return "list";
       case  MAP: return "map";
-      default: return "unknown";
     }
+    return "unknown";
 }
 
-std::ostream& operator<<(std::ostream& o,type_id t) { return o << type_name(t); }
+bool type_id_is_signed_int(type_id t) { return t == BYTE || t == SHORT || t == INT || t == LONG; }
+bool type_id_is_unsigned_int(type_id t) { return t == UBYTE || t == USHORT || t == UINT || t == ULONG; }
+bool type_id_is_integral(type_id t) { return t == BOOLEAN || t == CHAR || t == TIMESTAMP || type_id_is_unsigned_int(t) || type_id_is_signed_int(t); }
+bool type_id_is_floating_point(type_id t) { return t == FLOAT || t == DOUBLE; }
+bool type_id_is_decimal(type_id t) { return t == DECIMAL32 || t == DECIMAL64 || t == DECIMAL128; }
+bool type_id_is_signed(type_id t) { return type_id_is_signed_int(t) || type_id_is_floating_point(t) || type_id_is_decimal(t); }
+bool type_id_is_string_like(type_id t) { return t == BINARY || t == STRING || t == SYMBOL; }
+bool type_id_is_container(type_id t) { return t == LIST || t == MAP || t == ARRAY || t == DESCRIBED; }
+bool type_id_is_scalar(type_id t) { return type_id_is_integral(t) || type_id_is_floating_point(t) || type_id_is_decimal(t) || type_id_is_string_like(t) || t == TIMESTAMP || t == UUID; }
 
-PN_CPP_EXTERN bool is_container(type_id t) {
-    return (t == LIST || t == MAP || t == ARRAY || t == DESCRIBED);
-}
+
+std::ostream& operator<<(std::ostream& o, type_id t) { return o << type_name(t); }
+
 
 pn_bytes_t pn_bytes(const std::string& s) {
     pn_bytes_t b = { s.size(), const_cast<char*>(&s[0]) };
@@ -91,6 +118,6 @@ start::start(type_id t, type_id e, bool d, size_t s) : type(t), element(e), is_d
 start start::array(type_id element, bool described) { return start(ARRAY, element, described); }
 start start::list() { return start(LIST); }
 start start::map() { return start(MAP); }
-start start::described() { return start(DESCRIBED, NULL_, true); }
+start start::described() { return start(DESCRIBED, NULL_TYPE, true); }
 
 }

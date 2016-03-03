@@ -19,19 +19,21 @@
  *
  */
 
+#include "messaging_event.hpp"
+#include "proton/message.hpp"
+#include "proton/handler.hpp"
+#include "proton/sender.hpp"
+#include "proton/receiver.hpp"
+#include "proton/transport.hpp"
+#include "proton/error.hpp"
+
+#include "contexts.hpp"
+#include "msg.hpp"
+#include "proton_handler.hpp"
+
 #include "proton/reactor.h"
 #include "proton/event.h"
 #include "proton/link.h"
-
-#include "messaging_event.hpp"
-#include "proton/message.hpp"
-#include "proton/proton_handler.hpp"
-#include "proton/messaging_handler.hpp"
-#include "proton/sender.hpp"
-#include "proton/receiver.hpp"
-#include "proton/error.hpp"
-#include "msg.hpp"
-#include "contexts.hpp"
 
 /*
  * Performance note:
@@ -40,56 +42,57 @@
 
 namespace proton {
 
-messaging_event::messaging_event(pn_event_t *ce, proton_event::event_type t, class container &c) :
-    proton_event(ce, t, c), type_(messaging_event::PROTON), parent_event_(0), message_(0)
-{}
-
 messaging_event::messaging_event(event_type t, proton_event &p) :
-    proton_event(NULL, PN_EVENT_NONE, p.container()), type_(t), parent_event_(&p), message_(0)
-{
-    if (type_ == messaging_event::PROTON)
-        throw error(MSG("invalid messaging event type"));
-}
+    type_(t), parent_event_(&p), message_(0)
+{}
 
 messaging_event::~messaging_event() {}
 
 messaging_event::event_type messaging_event::type() const { return type_; }
 
-connection &messaging_event::connection() const {
-    if (type_ == messaging_event::PROTON)
-        return proton_event::connection();
+container& messaging_event::container() const {
+    if (parent_event_)
+        return parent_event_->container();
+    throw error(MSG("No container context for event"));
+}
+
+transport messaging_event::transport() const {
+    if (parent_event_)
+        return parent_event_->transport();
+    throw error(MSG("No transport context for event"));
+}
+
+connection messaging_event::connection() const {
     if (parent_event_)
         return parent_event_->connection();
     throw error(MSG("No connection context for event"));
 }
 
-sender& messaging_event::sender() const {
-    if (type_ == messaging_event::PROTON)
-        return proton_event::sender();
+session messaging_event::session() const {
+    if (parent_event_)
+        return parent_event_->session();
+    throw error(MSG("No session context for event"));
+}
+
+sender messaging_event::sender() const {
     if (parent_event_)
         return parent_event_->sender();
     throw error(MSG("No sender context for event"));
 }
 
-receiver& messaging_event::receiver() const {
-    if (type_ == messaging_event::PROTON)
-        return proton_event::receiver();
+receiver messaging_event::receiver() const {
     if (parent_event_)
         return parent_event_->receiver();
     throw error(MSG("No receiver context for event"));
 }
 
-link& messaging_event::link() const {
-    if (type_ == messaging_event::PROTON)
-        return proton_event::link();
+link messaging_event::link() const {
     if (parent_event_)
         return parent_event_->link();
     throw error(MSG("No link context for event"));
 }
 
-delivery& messaging_event::delivery() const {
-    if (type_ == messaging_event::PROTON)
-        return proton_event::delivery();
+delivery messaging_event::delivery() const {
     if (parent_event_)
         return parent_event_->delivery();
     throw error(MSG("No delivery context for event"));
@@ -101,99 +104,32 @@ message &messaging_event::message() const {
     return *message_;
 }
 
-void messaging_event::dispatch(handler &h) {
-    if (type_ == messaging_event::PROTON) {
-        proton_event::dispatch(h);
-        return;
-    }
-
-    messaging_handler *handler = dynamic_cast<messaging_handler*>(&h);
-    if (handler) {
-        switch(type_) {
-
-        case messaging_event::START:       handler->on_start(*this); break;
-        case messaging_event::SENDABLE:    handler->on_sendable(*this); break;
-        case messaging_event::MESSAGE:     handler->on_message(*this); break;
-        case messaging_event::ACCEPTED:    handler->on_accepted(*this); break;
-        case messaging_event::REJECTED:    handler->on_rejected(*this); break;
-        case messaging_event::RELEASED:    handler->on_released(*this); break;
-        case messaging_event::SETTLED:     handler->on_settled(*this); break;
-
-        case messaging_event::CONNECTION_CLOSING:     handler->on_connection_closing(*this); break;
-        case messaging_event::CONNECTION_CLOSED:      handler->on_connection_closed(*this); break;
-        case messaging_event::CONNECTION_ERROR:       handler->on_connection_error(*this); break;
-        case messaging_event::CONNECTION_OPENING:     handler->on_connection_opening(*this); break;
-        case messaging_event::CONNECTION_OPENED:      handler->on_connection_opened(*this); break;
-
-        case messaging_event::LINK_CLOSED:            handler->on_link_closed(*this); break;
-        case messaging_event::LINK_CLOSING:           handler->on_link_closing(*this); break;
-        case messaging_event::LINK_ERROR:             handler->on_link_error(*this); break;
-        case messaging_event::LINK_OPENING:           handler->on_link_opening(*this); break;
-        case messaging_event::LINK_OPENED:            handler->on_link_opened(*this); break;
-
-        case messaging_event::SESSION_CLOSED:         handler->on_session_closed(*this); break;
-        case messaging_event::SESSION_CLOSING:        handler->on_session_closing(*this); break;
-        case messaging_event::SESSION_ERROR:          handler->on_session_error(*this); break;
-        case messaging_event::SESSION_OPENING:        handler->on_session_opening(*this); break;
-        case messaging_event::SESSION_OPENED:         handler->on_session_opened(*this); break;
-
-        case messaging_event::TRANSPORT_CLOSED:       handler->on_transport_closed(*this); break;
-        default:
-            throw error(MSG("Unkown messaging event type " << type_));
-            break;
-        }
-    } else {
-        h.on_unhandled(*this);
-    }
-
-    // recurse through children
-    for (handler::iterator child = h.begin(); child != h.end(); ++child) {
-        dispatch(**child);
-    }
-}
-
 std::string messaging_event::name() const {
     switch (type()) {
-      case PROTON: return pn_event_type_name(pn_event_type_t(proton_event::type()));
-      case ABORT: return "ABORT";
-      case ACCEPTED: return "ACCEPTED";
-      case COMMIT: return "COMMIT";
-      case CONNECTION_CLOSED: return "CONNECTION_CLOSED";
-      case CONNECTION_CLOSING: return "CONNECTION_CLOSING";
+      case START:            return "START";
+      case MESSAGE:          return "MESSAGE";
+      case SENDABLE:         return "SENDABLE";
+      case TRANSPORT_CLOSE:  return "TRANSPORT_CLOSE";
+      case TRANSPORT_ERROR:  return "TRANSPORT_ERROR";
+      case DELIVERY_ACCEPT:  return "DELIVERY_ACCEPT";
+      case DELIVERY_REJECT:  return "DELIVERY_REJECT";
+      case DELIVERY_RELEASE: return "DELIVERY_RELEASE";
+      case DELIVERY_SETTLE:  return "DELIVERY_SETTLE";
+      case CONNECTION_CLOSE: return "CONNECTION_CLOSE";
       case CONNECTION_ERROR: return "CONNECTION_ERROR";
-      case CONNECTION_OPENED: return "CONNECTION_OPENED";
-      case CONNECTION_OPENING: return "CONNECTION_OPENING";
-      case DISCONNECTED: return "DISCONNECTED";
-      case FETCH: return "FETCH";
-      case ID_LOADED: return "ID_LOADED";
-      case LINK_CLOSED: return "LINK_CLOSED";
-      case LINK_CLOSING: return "LINK_CLOSING";
-      case LINK_OPENED: return "LINK_OPENED";
-      case LINK_OPENING: return "LINK_OPENING";
-      case LINK_ERROR: return "LINK_ERROR";
-      case MESSAGE: return "MESSAGE";
-      case QUIT: return "QUIT";
-      case RECORD_INSERTED: return "RECORD_INSERTED";
-      case RECORDS_LOADED: return "RECORDS_LOADED";
-      case REJECTED: return "REJECTED";
-      case RELEASED: return "RELEASED";
-      case REQUEST: return "REQUEST";
-      case RESPONSE: return "RESPONSE";
-      case SENDABLE: return "SENDABLE";
-      case SESSION_CLOSED: return "SESSION_CLOSED";
-      case SESSION_CLOSING: return "SESSION_CLOSING";
-      case SESSION_OPENED: return "SESSION_OPENED";
-      case SESSION_OPENING: return "SESSION_OPENING";
-      case SESSION_ERROR: return "SESSION_ERROR";
-      case SETTLED: return "SETTLED";
-      case START: return "START";
-      case TIMER: return "TIMER";
-      case TRANSACTION_ABORTED: return "TRANSACTION_ABORTED";
-      case TRANSACTION_COMMITTED: return "TRANSACTION_COMMITTED";
-      case TRANSACTION_DECLARED: return "TRANSACTION_DECLARED";
-      case TRANSPORT_CLOSED: return "TRANSPORT_CLOSED";
-      default: return "UNKNOWN";
+      case CONNECTION_OPEN:  return "CONNECTION_OPEN";
+      case LINK_CLOSE:       return "LINK_CLOSE";
+      case LINK_OPEN:        return "LINK_OPEN";
+      case LINK_ERROR:       return "LINK_ERROR";
+      case SESSION_CLOSE:    return "SESSION_CLOSE";
+      case SESSION_OPEN:     return "SESSION_OPEN";
+      case SESSION_ERROR:    return "SESSION_ERROR";
+      case TRANSACTION_ABORT:   return "TRANSACTION_ABORT";
+      case TRANSACTION_COMMIT:  return "TRANSACTION_COMMIT";
+      case TRANSACTION_DECLARE: return "TRANSACTION_DECLARE";
+      case TIMER:            return "TIMER";
     }
+    return "unknown";
 }
 
 }

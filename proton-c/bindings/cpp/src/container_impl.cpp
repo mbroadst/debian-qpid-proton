@@ -19,22 +19,26 @@
  *
  */
 #include "proton/container.hpp"
+#include "proton/connection_options.hpp"
 #include "proton/event.hpp"
-#include "messaging_event.hpp"
 #include "proton/connection.hpp"
 #include "proton/session.hpp"
-#include "proton/messaging_adapter.hpp"
 #include "proton/acceptor.hpp"
 #include "proton/error.hpp"
 #include "proton/url.hpp"
 #include "proton/sender.hpp"
 #include "proton/receiver.hpp"
 #include "proton/task.hpp"
+#include "proton/ssl.hpp"
+#include "proton/sasl.hpp"
+#include "proton/transport.hpp"
 
-#include "msg.hpp"
-#include "container_impl.hpp"
 #include "connector.hpp"
+#include "container_impl.hpp"
 #include "contexts.hpp"
+#include "messaging_adapter.hpp"
+#include "messaging_event.hpp"
+#include "msg.hpp"
 #include "uuid.hpp"
 
 #include "proton/connection.h"
@@ -63,75 +67,76 @@ struct handler_context {
     static void dispatch(pn_handler_t *c_handler, pn_event_t *c_event, pn_event_type_t type)
     {
         handler_context& hc(handler_context::get(c_handler));
-        messaging_event mevent(c_event, type, *hc.container_);
-        mevent.dispatch(*hc.handler_);
+        proton_event pevent(c_event, type, hc.container_);
+        pevent.dispatch(*hc.handler_);
         return;
     }
 
     container *container_;
-    handler *handler_;
+    proton_handler *handler_;
 };
 
 
 // Used to sniff for connector events before the reactor's global handler sees them.
-class override_handler : public handler
+class override_handler : public proton_handler
 {
   public:
-    counted_ptr<pn_handler_t> base_handler;
+    pn_ptr<pn_handler_t> base_handler;
+    container_impl &container_impl_;
 
-    override_handler(pn_handler_t *h) : base_handler(h) {}
+    override_handler(pn_handler_t *h, container_impl &c) : base_handler(h), container_impl_(c) {}
 
-    virtual void on_unhandled(event &e) {
-        proton_event *pne = dynamic_cast<proton_event *>(&e);
-        // If not a Proton reactor event, nothing to override, nothing to pass along.
-        if (!pne) return;
-        int type = pne->type();
-        if (!type) return;  // Also not from the reactor
+    virtual void on_unhandled(proton_event &pe) {
+        proton_event::event_type type = pe.type();
+        if (type==proton_event::EVENT_NONE) return;  // Also not from the reactor
 
-        pn_event_t *cevent = pne->pn_event();
+        pn_event_t *cevent = pe.pn_event();
         pn_connection_t *conn = pn_event_connection(cevent);
-        if (conn && type != PN_CONNECTION_INIT) {
-            handler *override = connection_context::get(conn).handler.get();
-            if (override) e.dispatch(*override);
+        if (conn) {
+            proton_handler *override = connection_context::get(conn).handler.get();
+            if (override && type != proton_event::CONNECTION_INIT) {
+                // Send event to connector
+                pe.dispatch(*override);
+            }
+            else if (!override && type == proton_event::CONNECTION_INIT) {
+                // Newly accepted connection from lister socket
+                connection c(conn);
+                container_impl_.configure_server_connection(c);
+            }
         }
-        pn_handler_dispatch(base_handler.get(), cevent, (pn_event_type_t) type);
+        pn_handler_dispatch(base_handler.get(), cevent, pn_event_type_t(type));
     }
 };
 
 } // namespace
 
-counted_ptr<pn_handler_t> container_impl::cpp_handler(handler *h)
-{
-    if (h->pn_handler_)
-        return h->pn_handler_;
-    counted_ptr<pn_handler_t> handler(
-        pn_handler_new(&handler_context::dispatch, sizeof(struct handler_context),
-                       &handler_context::cleanup),
-        false);
-    handler_context &hc = handler_context::get(handler.get());
-    hc.container_ = &container_;
-    hc.handler_ = h;
-    h->pn_handler_ = handler;
-    return handler;
+pn_ptr<pn_handler_t> container_impl::cpp_handler(proton_handler *h) {
+    if (!h->pn_handler_) {
+        h->pn_handler_ = take_ownership(
+            pn_handler_new(&handler_context::dispatch,
+                           sizeof(struct handler_context),
+                           &handler_context::cleanup));
+        handler_context &hc = handler_context::get(h->pn_handler_.get());
+        hc.container_ = &container_;
+        hc.handler_ = h;
+    }
+    return h->pn_handler_;
 }
 
-container_impl::container_impl(container& c, handler *h, const std::string& id) :
-    container_(c), reactor_(reactor::create()), handler_(h), id_(id),
-    link_id_(0)
+container_impl::container_impl(container& c, messaging_adapter *h, const std::string& id) :
+    container_(c), reactor_(reactor::create()), handler_(h),
+    id_(id.empty() ? uuid().str() : id), id_gen_()
 {
-    if (id_.empty()) id_ = uuid().str();
-    container_context(pn_cast(reactor_.get()), container_);
+    container_context::set(reactor_, container_);
 
     // Set our own global handler that "subclasses" the existing one
-    pn_handler_t *global_handler = pn_reactor_get_global_handler(pn_cast(reactor_.get()));
-    override_handler_.reset(new override_handler(global_handler));
-    counted_ptr<pn_handler_t> cpp_global_handler(cpp_handler(override_handler_.get()));
-    pn_reactor_set_global_handler(pn_cast(reactor_.get()), cpp_global_handler.get());
+    pn_handler_t *global_handler = reactor_.pn_global_handler();
+    override_handler_.reset(new override_handler(global_handler, *this));
+    pn_ptr<pn_handler_t> cpp_global_handler(cpp_handler(override_handler_.get()));
+    reactor_.pn_global_handler(cpp_global_handler.get());
     if (handler_) {
-        counted_ptr<pn_handler_t> pn_handler(cpp_handler(handler_));
-        pn_reactor_set_handler(pn_cast(reactor_.get()), pn_handler.get());
+        reactor_.pn_handler(cpp_handler(handler_).get());
     }
-
 
     // Note: we have just set up the following handlers that see events in this order:
     // messaging_handler (Proton C events), pn_flowcontroller (optional), messaging_adapter,
@@ -141,61 +146,93 @@ container_impl::container_impl(container& c, handler *h, const std::string& id) 
 
 container_impl::~container_impl() {}
 
-connection& container_impl::connect(const proton::url &url, handler *h) {
-    counted_ptr<pn_handler_t> chandler = h ? cpp_handler(h) : counted_ptr<pn_handler_t>();
-    connection& conn(           // Reactor owns the reference.
-        *connection::cast(pn_reactor_connection(pn_cast(reactor_.get()), chandler.get())));
-    pn_unique_ptr<connector> ctor(new connector(conn));
+connection container_impl::connect(const proton::url &url, const connection_options &user_opts) {
+    connection_options opts = client_connection_options(); // Defaults
+    opts.override(user_opts);
+    proton_handler *h = opts.handler();
+
+    pn_ptr<pn_handler_t> chandler = h ? cpp_handler(h) : pn_ptr<pn_handler_t>();
+    connection conn(reactor_.connection(chandler.get()));
+    pn_unique_ptr<connector> ctor(new connector(conn, opts));
     ctor->address(url);  // TODO: url vector
-    connection_context& cc(connection_context::get(pn_cast(&conn)));
-    cc.container_impl = this;
+    connection_context& cc(connection_context::get(conn));
     cc.handler.reset(ctor.release());
+    cc.link_gen.prefix(id_gen_.next() + "/");
+    pn_connection_set_container(conn.pn_object(), id_.c_str());
+
     conn.open();
     return conn;
 }
 
-sender& container_impl::open_sender(const proton::url &url) {
-    connection& conn = connect(url, 0);
+sender container_impl::open_sender(const proton::url &url, const proton::link_options &o1, const connection_options &o2) {
+    proton::link_options lopts(link_options_);
+    lopts.override(o1);
+    connection_options copts(client_connection_options_);
+    copts.override(o2);
+    connection conn = connect(url, copts);
     std::string path = url.path();
-    sender& snd = conn.default_session().open_sender(id_ + '-' + path);
-    snd.target().address(path);
-    snd.open();
+    sender snd = conn.default_session().create_sender();
+    snd.local_target().address(path);
+    snd.open(lopts);
     return snd;
 }
 
-receiver& container_impl::open_receiver(const proton::url &url) {
-    connection& conn = connect(url, 0);
+receiver container_impl::open_receiver(const proton::url &url, const proton::link_options &o1, const connection_options &o2) {
+    proton::link_options lopts(link_options_);
+    lopts.override(o1);
+    connection_options copts(client_connection_options_);
+    copts.override(o2);
+    connection conn = connect(url, copts);
     std::string path = url.path();
-    receiver& rcv = conn.default_session().open_receiver(id_ + '-' + path);
-    pn_terminus_set_address(pn_link_source(pn_cast(&rcv)), path.c_str());
-    rcv.open();
+    receiver rcv = conn.default_session().create_receiver();
+    rcv.local_source().address(path);
+    rcv.open(lopts);
     return rcv;
 }
 
-acceptor& container_impl::listen(const proton::url& url) {
-    pn_acceptor_t *acptr = pn_reactor_acceptor(
-        pn_cast(reactor_.get()), url.host().c_str(), url.port().c_str(), NULL);
-    if (acptr)
-        return *acceptor::cast(acptr);
-    else
+acceptor container_impl::listen(const proton::url& url, const connection_options &user_opts) {
+    connection_options opts = server_connection_options(); // Defaults
+    opts.override(user_opts);
+    proton_handler *h = opts.handler();
+    pn_ptr<pn_handler_t> chandler = h ? cpp_handler(h) : pn_ptr<pn_handler_t>();
+    pn_acceptor_t *acptr = pn_reactor_acceptor(reactor_.pn_object(), url.host().c_str(), url.port().c_str(), chandler.get());
+    if (!acptr)
         throw error(MSG("accept fail: " <<
-                        pn_error_text(pn_io_error(pn_reactor_io(pn_cast(reactor_.get()))))
-                        << "(" << url << ")"));
+                        pn_error_text(pn_io_error(reactor_.pn_io())))
+                        << "(" << url << ")");
+    // Do not use pn_acceptor_set_ssl_domain().  Manage the incoming connections ourselves for
+    // more flexibility (i.e. ability to change the server cert for a long running listener).
+    listener_context& lc(listener_context::get(acptr));
+    lc.connection_options = opts;
+    lc.ssl = url.scheme() == url::AMQPS;
+    return acceptor(acptr);
 }
 
-std::string container_impl::next_link_name() {
-    std::ostringstream s;
-    // TODO aconway 2015-09-01: atomic operation
-    s << std::hex << ++link_id_ << "@" << id_;
-    return s.str();
-}
-
-task& container_impl::schedule(int delay, handler *h) {
-    counted_ptr<pn_handler_t> task_handler;
+task container_impl::schedule(int delay, proton_handler *h) {
+    pn_ptr<pn_handler_t> task_handler;
     if (h)
         task_handler = cpp_handler(h);
-    task *t = task::cast(pn_reactor_schedule(pn_cast(reactor_.get()), delay, task_handler.get()));
-    return *t;
+    return reactor_.schedule(delay, task_handler.get());
+}
+
+void container_impl::client_connection_options(const connection_options &opts) {
+    client_connection_options_ = opts;
+}
+
+void container_impl::server_connection_options(const connection_options &opts) {
+    server_connection_options_ = opts;
+}
+
+void container_impl::link_options(const proton::link_options &opts) {
+    link_options_ = opts;
+}
+
+void container_impl::configure_server_connection(connection &c) {
+    pn_acceptor_t *pnp = pn_connection_acceptor(connection_options::pn_connection(c));
+    listener_context &lc(listener_context::get(pnp));
+    connection_context::get(c).link_gen.prefix(id_gen_.next() + "/");
+    pn_connection_set_container(c.pn_object(), id_.c_str());
+    lc.connection_options.apply(c);
 }
 
 }

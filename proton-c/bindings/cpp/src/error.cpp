@@ -21,10 +21,17 @@
 
 namespace proton {
 
-static const std::string prefix("proton: ");
+error::error(const std::string& msg) : std::runtime_error(msg) {}
 
-error::error(const std::string& msg) throw() : std::runtime_error(prefix+msg) {}
+timeout_error::timeout_error(const std::string& msg) : error(msg) {}
 
-timeout_error::timeout_error(const std::string& msg) throw() : error(msg) {}
+decode_error::decode_error(const std::string& msg) : error("decode: "+msg) {}
+
+encode_error::encode_error(const std::string& msg) : error("encode: "+msg) {}
+
+io_error::io_error(const std::string& msg) : error(msg) {}
+
+closed_error::closed_error(const std::string& msg) : io_error(msg) {}
+const std::string closed_error::default_msg("closed");
 
 }

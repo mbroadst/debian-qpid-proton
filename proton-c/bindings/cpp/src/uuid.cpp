@@ -24,14 +24,39 @@
 #include <sstream>
 #include <iomanip>
 
+#ifdef WIN32
+#include <process.h>
+#define GETPID _getpid
+#else
+#include <unistd.h>
+#define GETPID getpid
+#endif
+
 namespace proton {
 
-uuid::uuid() {
-    static bool seeded = false;
-    if (!seeded) {
-        std::srand(std::time(0)); // use current time as seed for random generator
-        seeded = true;
+namespace {
+
+
+// Seed the random number generated once at startup.
+struct seed {
+    seed() {
+        // A hash of time and PID, time alone is a bad seed as programs started
+        // within the same second will get the same seed.
+        long secs = time(0);
+        long pid = GETPID();
+        std::srand(((secs*181)*((pid-83)*359))%104729);
     }
+} seed_;
+
+struct ios_guard {
+    std::ios &guarded;
+    std::ios old;
+    ios_guard(std::ios& x) : guarded(x), old(0) { old.copyfmt(guarded); }
+    ~ios_guard() { guarded.copyfmt(old); }
+};
+}
+
+uuid::uuid() {
     int r = std::rand();
     for (size_t i = 0; i < sizeof(bytes); ++i ) {
         bytes[i] = r & 0xFF;
@@ -46,13 +71,24 @@ uuid::uuid() {
     bytes[8] = (bytes[8] & 0x3F) | 0x80;
 }
 
-std::string uuid::str() {
-    // UUID standard format: 8-4-4-4-12 (36 chars, 32 alphanumeric and 4 hypens)
+/// UUID standard format: 8-4-4-4-12 (36 chars, 32 alphanumeric and 4 hypens)
+std::ostream& operator<<(std::ostream& o, const uuid& u) {
+    ios_guard guard(o);
+    o << std::hex << std::setfill('0');
+    static const int segments[] = {4,2,2,2,6}; // 1 byte is 2 hex chars.
+    const uint8_t *p = u.bytes;
+    for (size_t i = 0; i < sizeof(segments)/sizeof(segments[0]); ++i) {
+        if (i > 0)
+            o << '-';
+        for (int j = 0; j < segments[i]; ++j)
+            o << std::setw(2) << int(*(p++));
+    }
+    return o;
+}
+
+std::string uuid::str() const {
     std::ostringstream s;
-    s << std::hex << std::setw(2) << std::setfill('0');
-    s << b(0) << b(1) << b(2) << b(3);
-    s << '-' << b(4) << b(5) << '-' << b(6) << b(7) << '-' << b(8) << b(9);
-    s << '-' << b(10) << b(11) << b(12) << b(13) << b(14) << b(15);
+    s << *this;
     return s.str();
 }
 

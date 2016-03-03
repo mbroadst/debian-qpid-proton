@@ -25,9 +25,9 @@
 #include "proton/delivery.hpp"
 #include "proton/error.hpp"
 #include "proton/event.hpp"
-#include "proton/handler.hpp"
 #include "proton/receiver.hpp"
 #include "proton/sender.hpp"
+#include "proton/transport.hpp"
 
 #include "msg.hpp"
 #include "contexts.hpp"
@@ -38,28 +38,36 @@ event::event() {}
 
 event::~event() {}
 
-container &event::container() const {
+container& event::container() const {
     // Subclasses to override as appropriate
     throw error(MSG("No container context for event"));
 }
 
-connection &event::connection() const {
+transport event::transport() const {
+    throw error(MSG("No transport context for event"));
+}
+
+connection event::connection() const {
     throw error(MSG("No connection context for event"));
 }
 
-sender& event::sender() const {
+session event::session() const {
+    throw error(MSG("No session context for event"));
+}
+
+sender event::sender() const {
     throw error(MSG("No sender context for event"));
 }
 
-receiver& event::receiver() const {
+receiver event::receiver() const {
     throw error(MSG("No receiver context for event"));
 }
 
-link& event::link() const {
+link event::link() const {
     throw error(MSG("No link context for event"));
 }
 
-delivery& event::delivery() const {
+delivery event::delivery() const {
     throw error(MSG("No link context for event"));
 }
 

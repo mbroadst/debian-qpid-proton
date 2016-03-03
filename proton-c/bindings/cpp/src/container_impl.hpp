@@ -22,10 +22,14 @@
  *
  */
 #include "proton/export.hpp"
-#include "proton/messaging_handler.hpp"
+#include "proton/handler.hpp"
 #include "proton/connection.hpp"
 #include "proton/link.hpp"
 #include "proton/duration.hpp"
+#include "proton/reactor.hpp"
+#include "proton/id_generator.hpp"
+
+#include "proton_handler.hpp"
 
 #include "proton/reactor.h"
 
@@ -38,36 +42,45 @@ class connection;
 class connector;
 class acceptor;
 class container;
+class url;
+class task;
 
 class container_impl
 {
   public:
-    PN_CPP_EXTERN container_impl(container&, handler *, const std::string& id);
+    PN_CPP_EXTERN container_impl(container&, messaging_adapter*, const std::string& id);
     PN_CPP_EXTERN ~container_impl();
-    PN_CPP_EXTERN connection& connect(const url&, handler *h);
-    PN_CPP_EXTERN sender& open_sender(connection &connection, const std::string &addr, handler *h);
-    PN_CPP_EXTERN sender& open_sender(const url&);
-    PN_CPP_EXTERN receiver& open_receiver(connection &connection, const std::string &addr, bool dynamic, handler *h);
-    PN_CPP_EXTERN receiver& open_receiver(const url&);
-    PN_CPP_EXTERN class acceptor& listen(const url&);
+    PN_CPP_EXTERN connection connect(const url&, const connection_options&);
+    PN_CPP_EXTERN sender open_sender(const url&, const proton::link_options &, const connection_options &);
+    PN_CPP_EXTERN receiver open_receiver(const url&, const proton::link_options &, const connection_options &);
+    PN_CPP_EXTERN class acceptor listen(const url&, const connection_options &);
     PN_CPP_EXTERN duration timeout();
     PN_CPP_EXTERN void timeout(duration timeout);
+    void client_connection_options(const connection_options &);
+    const connection_options& client_connection_options() { return client_connection_options_; }
+    void server_connection_options(const connection_options &);
+    const connection_options& server_connection_options() { return server_connection_options_; }
+    void link_options(const proton::link_options&);
+    const proton::link_options& link_options() { return link_options_; }
 
-    task& schedule(int delay, handler *h);
-    counted_ptr<pn_handler_t> cpp_handler(handler *h);
+    void configure_server_connection(connection &c);
+    task schedule(int delay, proton_handler *h);
+    pn_ptr<pn_handler_t> cpp_handler(proton_handler *h);
 
     std::string next_link_name();
 
   private:
 
     container& container_;
-    pn_unique_ptr<reactor> reactor_;
-    handler *handler_;
-    pn_unique_ptr<messaging_adapter> messaging_adapter_;
-    pn_unique_ptr<handler> override_handler_;
-    pn_unique_ptr<handler> flow_controller_;
+    reactor reactor_;
+    proton_handler *handler_;
+    pn_unique_ptr<proton_handler> override_handler_;
+    pn_unique_ptr<proton_handler> flow_controller_;
     std::string id_;
-    uint64_t link_id_;
+    id_generator id_gen_;
+    connection_options client_connection_options_;
+    connection_options server_connection_options_;
+    proton::link_options link_options_;
 
   friend class container;
 };

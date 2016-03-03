@@ -19,36 +19,38 @@
  * under the License.
  */
 
+/// @cond INTERNAL
+/// XXX discuss where this gets exposed
+    
 #include "proton/config.hpp"
 #include <memory>
 
 namespace proton {
 
-/**
- * A simple unique ownership pointer, used as a return value from functions that
- * transfer ownership to the caller.
- *
- * pn_unique_ptr return values should be converted immediately to
- * std::unique_ptr if that is available or std::auto_ptr (by calling release())
- * for older C++. You should not use pn_unique_ptr in your own code, it is a
- * limited pointer class designed only to work around differences between C++11
- * and C++03.
- */
+/// A simple unique ownership pointer, used as a return value from
+/// functions that transfer ownership to the caller.
+///
+/// pn_unique_ptr return values should be converted immediately to
+/// std::unique_ptr if that is available or std::auto_ptr (by calling
+/// release()) for older C++. You should not use pn_unique_ptr in your
+/// own code.  It is a limited pointer class designed only to work
+/// around differences between C++11 and C++03.
 template <class T> class pn_unique_ptr {
   public:
     pn_unique_ptr(T* p=0) : ptr_(p) {}
 #if PN_HAS_CPP11
-    pn_unique_ptr(pn_unique_ptr&& x) : ptr_(0)  { swap(x); }
+    pn_unique_ptr(pn_unique_ptr&& x) : ptr_(0)  { std::swap(ptr_, x.ptr_); }
 #else
-    pn_unique_ptr(const pn_unique_ptr& x) : ptr_() { swap(const_cast<pn_unique_ptr<T>&>(x)); }
+    pn_unique_ptr(const pn_unique_ptr& x) : ptr_() { std::swap(ptr_, const_cast<pn_unique_ptr&>(x).ptr_); }
 #endif
     ~pn_unique_ptr() { delete(ptr_); }
     T& operator*() const { return *ptr_; }
     T* operator->() const { return ptr_; }
     T* get() const { return ptr_; }
-    void swap(pn_unique_ptr<T>& x) { T *p = x.ptr_; x.ptr_ = ptr_; ptr_ = p; }
-    void reset(T* p = 0) { pn_unique_ptr<T> tmp(p); tmp.swap(*this); }
+    void reset(T* p = 0) { pn_unique_ptr<T> tmp(p); std::swap(ptr_, tmp.ptr_); }
     T* release() { T *p = ptr_; ptr_ = 0; return p; }
+    operator bool() const { return get(); }
+    bool operator !() const { return get(); }
 
 #if PN_HAS_STD_PTR
     operator std::unique_ptr<T>() { T *p = ptr_; ptr_ = 0; return std::unique_ptr<T>(p); }
@@ -58,5 +60,8 @@ template <class T> class pn_unique_ptr {
     T* ptr_;
 };
 
+/// @endcond
+
 }
+
 #endif // UNIQUE_PTR_HPP

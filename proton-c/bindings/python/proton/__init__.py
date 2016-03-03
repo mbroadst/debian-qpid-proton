@@ -984,10 +984,10 @@ The address of the message.
 """)
 
   def _get_subject(self):
-    return pn_message_get_subject(self._msg)
+    return utf82unicode(pn_message_get_subject(self._msg))
 
   def _set_subject(self, value):
-    self._check(pn_message_set_subject(self._msg, value))
+    self._check(pn_message_set_subject(self._msg, unicode2utf8(value)))
 
   subject = property(_get_subject, _set_subject,
                      doc="""
@@ -1019,10 +1019,10 @@ The correlation-id for the message.
 """)
 
   def _get_content_type(self):
-    return pn_message_get_content_type(self._msg)
+    return symbol(utf82unicode(pn_message_get_content_type(self._msg)))
 
   def _set_content_type(self, value):
-    self._check(pn_message_set_content_type(self._msg, value))
+    self._check(pn_message_set_content_type(self._msg, unicode2utf8(value)))
 
   content_type = property(_get_content_type, _set_content_type,
                           doc="""
@@ -1030,10 +1030,10 @@ The content-type of the message.
 """)
 
   def _get_content_encoding(self):
-    return pn_message_get_content_encoding(self._msg)
+    return symbol(utf82unicode(pn_message_get_content_encoding(self._msg)))
 
   def _set_content_encoding(self, value):
-    self._check(pn_message_set_content_encoding(self._msg, value))
+    self._check(pn_message_set_content_encoding(self._msg, unicode2utf8(value)))
 
   content_encoding = property(_get_content_encoding, _set_content_encoding,
                               doc="""
@@ -1063,10 +1063,10 @@ The creation time of the message.
 """)
 
   def _get_group_id(self):
-    return pn_message_get_group_id(self._msg)
+    return utf82unicode(pn_message_get_group_id(self._msg))
 
   def _set_group_id(self, value):
-    self._check(pn_message_set_group_id(self._msg, value))
+    self._check(pn_message_set_group_id(self._msg, unicode2utf8(value)))
 
   group_id = property(_get_group_id, _set_group_id,
                       doc="""
@@ -1085,10 +1085,10 @@ The sequence of the message within its group.
 """)
 
   def _get_reply_to_group_id(self):
-    return pn_message_get_reply_to_group_id(self._msg)
+    return utf82unicode(pn_message_get_reply_to_group_id(self._msg))
 
   def _set_reply_to_group_id(self, value):
-    self._check(pn_message_set_reply_to_group_id(self._msg, value))
+    self._check(pn_message_set_reply_to_group_id(self._msg, unicode2utf8(value)))
 
   reply_to_group_id = property(_get_reply_to_group_id, _set_reply_to_group_id,
                                doc="""
@@ -1291,6 +1291,56 @@ class char(unicode):
 
   def __repr__(self):
     return "char(%s)" % unicode.__repr__(self)
+
+class byte(int):
+
+  def __repr__(self):
+    return "byte(%s)" % int.__repr__(self)
+
+class short(int):
+
+  def __repr__(self):
+    return "short(%s)" % int.__repr__(self)
+
+class int32(int):
+
+  def __repr__(self):
+      return "int32(%s)" % int.__repr__(self)
+
+class ubyte(int):
+
+  def __repr__(self):
+    return "ubyte(%s)" % int.__repr__(self)
+
+class ushort(int):
+
+  def __repr__(self):
+    return "ushort(%s)" % int.__repr__(self)
+
+class uint(long):
+
+  def __repr__(self):
+      return "uint(%s)" % long.__repr__(self)
+
+class float32(float):
+
+  def __repr__(self):
+    return "float32(%s)" % float.__repr__(self)
+
+class decimal32(int):
+
+  def __repr__(self):
+    return "decimal32(%s)" % int.__repr__(self)
+
+class decimal64(long):
+
+  def __repr__(self):
+    return "decimal64(%s)" % long.__repr__(self)
+
+class decimal128(bytes):
+
+  def __repr__(self):
+    return "decimal128(%s)" % bytes.__repr__(self)
 
 class Described(object):
 
@@ -1904,42 +1954,42 @@ class Data:
     If the current node is an unsigned byte, returns its value,
     returns 0 otherwise.
     """
-    return pn_data_get_ubyte(self._data)
+    return ubyte(pn_data_get_ubyte(self._data))
 
   def get_byte(self):
     """
     If the current node is a signed byte, returns its value, returns 0
     otherwise.
     """
-    return pn_data_get_byte(self._data)
+    return byte(pn_data_get_byte(self._data))
 
   def get_ushort(self):
     """
     If the current node is an unsigned short, returns its value,
     returns 0 otherwise.
     """
-    return pn_data_get_ushort(self._data)
+    return ushort(pn_data_get_ushort(self._data))
 
   def get_short(self):
     """
     If the current node is a signed short, returns its value, returns
     0 otherwise.
     """
-    return pn_data_get_short(self._data)
+    return short(pn_data_get_short(self._data))
 
   def get_uint(self):
     """
     If the current node is an unsigned int, returns its value, returns
     0 otherwise.
     """
-    return pn_data_get_uint(self._data)
+    return uint(pn_data_get_uint(self._data))
 
   def get_int(self):
     """
     If the current node is a signed int, returns its value, returns 0
     otherwise.
     """
-    return int(pn_data_get_int(self._data))
+    return int32(pn_data_get_int(self._data))
 
   def get_char(self):
     """
@@ -1974,7 +2024,7 @@ class Data:
     If the current node is a float, returns its value, raises 0
     otherwise.
     """
-    return pn_data_get_float(self._data)
+    return float32(pn_data_get_float(self._data))
 
   def get_double(self):
     """
@@ -1989,7 +2039,7 @@ class Data:
     If the current node is a decimal32, returns its value, returns 0
     otherwise.
     """
-    return pn_data_get_decimal32(self._data)
+    return decimal32(pn_data_get_decimal32(self._data))
 
   # XXX: need to convert
   def get_decimal64(self):
@@ -1997,7 +2047,7 @@ class Data:
     If the current node is a decimal64, returns its value, returns 0
     otherwise.
     """
-    return pn_data_get_decimal64(self._data)
+    return decimal64(pn_data_get_decimal64(self._data))
 
   # XXX: need to convert
   def get_decimal128(self):
@@ -2005,7 +2055,7 @@ class Data:
     If the current node is a decimal128, returns its value, returns 0
     otherwise.
     """
-    return pn_data_get_decimal128(self._data)
+    return decimal128(pn_data_get_decimal128(self._data))
 
   def get_uuid(self):
     """
@@ -2157,18 +2207,29 @@ class Data:
   put_mappings = {
     None.__class__: lambda s, _: s.put_null(),
     bool: put_bool,
-    dict: put_dict,
+    ubyte: put_ubyte,
+    ushort: put_ushort,
+    uint: put_uint,
+    ulong: put_ulong,
+    byte: put_byte,
+    short: put_short,
+    int32: put_int,
+    int: put_long,
+    long: put_long,
+    float32: put_float,
+    float: put_double,
+    decimal32: put_decimal32,
+    decimal64: put_decimal64,
+    decimal128: put_decimal128,
+    char: put_char,
+    timestamp: put_timestamp,
+    uuid.UUID: put_uuid,
+    bytes: put_binary,
+    unicode: put_string,
+    symbol: put_symbol,
     list: put_sequence,
     tuple: put_sequence,
-    unicode: put_string,
-    bytes: put_binary,
-    symbol: put_symbol,
-    long: put_long,
-    char: put_char,
-    ulong: put_ulong,
-    timestamp: put_timestamp,
-    float: put_double,
-    uuid.UUID: put_uuid,
+    dict: put_dict,
     Described: put_py_described,
     Array: put_py_array
     }
@@ -3566,6 +3627,73 @@ class SSL(object):
       return name
     return None
 
+  SHA1 = PN_SSL_SHA1
+  SHA256 = PN_SSL_SHA256
+  SHA512 = PN_SSL_SHA512
+  MD5 = PN_SSL_MD5
+
+  CERT_COUNTRY_NAME = PN_SSL_CERT_SUBJECT_COUNTRY_NAME
+  CERT_STATE_OR_PROVINCE = PN_SSL_CERT_SUBJECT_STATE_OR_PROVINCE
+  CERT_CITY_OR_LOCALITY = PN_SSL_CERT_SUBJECT_CITY_OR_LOCALITY
+  CERT_ORGANIZATION_NAME = PN_SSL_CERT_SUBJECT_ORGANIZATION_NAME
+  CERT_ORGANIZATION_UNIT = PN_SSL_CERT_SUBJECT_ORGANIZATION_UNIT
+  CERT_COMMON_NAME = PN_SSL_CERT_SUBJECT_COMMON_NAME
+
+  def get_cert_subject_subfield(self, subfield_name):
+    subfield_value = pn_ssl_get_remote_subject_subfield(self._ssl, subfield_name)
+    return subfield_value
+
+  def get_cert_subject(self):
+    subject = pn_ssl_get_remote_subject(self._ssl)
+    return subject
+
+  def _get_cert_subject_unknown_subfield(self):
+    # Pass in an unhandled enum
+    return self.get_cert_subject_subfield(10)
+
+  # Convenience functions for obtaining the subfields of the subject field.
+  def get_cert_common_name(self):
+    return self.get_cert_subject_subfield(SSL.CERT_COMMON_NAME)
+
+  def get_cert_organization(self):
+    return self.get_cert_subject_subfield(SSL.CERT_ORGANIZATION_NAME)
+
+  def get_cert_organization_unit(self):
+    return self.get_cert_subject_subfield(SSL.CERT_ORGANIZATION_UNIT)
+
+  def get_cert_locality_or_city(self):
+    return self.get_cert_subject_subfield(SSL.CERT_CITY_OR_LOCALITY)
+
+  def get_cert_country(self):
+    return self.get_cert_subject_subfield(SSL.CERT_COUNTRY_NAME)
+
+  def get_cert_state_or_province(self):
+    return self.get_cert_subject_subfield(SSL.CERT_STATE_OR_PROVINCE)
+
+  def get_cert_fingerprint(self, fingerprint_length, digest_name):
+    rc, fingerprint_str = pn_ssl_get_cert_fingerprint(self._ssl, fingerprint_length, digest_name)
+    if rc == PN_OK:
+      return fingerprint_str
+    return None
+
+  # Convenience functions for obtaining fingerprint for specific hashing algorithms
+  def _get_cert_fingerprint_unknown_hash_alg(self):
+    return self.get_cert_fingerprint(41, 10)
+
+  def get_cert_fingerprint_sha1(self):
+    return self.get_cert_fingerprint(41, SSL.SHA1)
+
+  def get_cert_fingerprint_sha256(self):
+    # sha256 produces a fingerprint that is 64 characters long
+    return self.get_cert_fingerprint(65, SSL.SHA256)
+
+  def get_cert_fingerprint_sha512(self):
+    # sha512 produces a fingerprint that is 128 characters long
+    return self.get_cert_fingerprint(129, SSL.SHA512)
+
+  def get_cert_fingerprint_md5(self):
+    return self.get_cert_fingerprint(33, SSL.MD5)
+
   @property
   def remote_subject(self):
     return pn_ssl_get_remote_subject( self._ssl )
@@ -3804,6 +3932,13 @@ class Event(Wrapper, EventBase):
   def reactor(self):
     """Returns the reactor associated with the event."""
     return wrappers.get("pn_reactor", _none)(pn_event_reactor(self._impl))
+
+  def __getattr__(self, name):
+    r = self.reactor
+    if r and hasattr(r, 'subclass') and r.subclass.__name__.lower() == name:
+      return r
+    else:
+      return super(Event, self).__getattr__(name)
 
   @property
   def transport(self):
@@ -4125,5 +4260,15 @@ __all__ = [
            "dispatch",
            "symbol",
            "timestamp",
-           "ulong"
+           "ulong",
+           "byte",
+           "short",
+           "int32",
+           "ubyte",
+           "ushort",
+           "uint",
+           "float32",
+           "decimal32",
+           "decimal64",
+           "decimal128"
            ]

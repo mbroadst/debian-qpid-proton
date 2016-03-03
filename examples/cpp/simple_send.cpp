@@ -22,70 +22,79 @@
 #include "options.hpp"
 
 #include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
+#include "proton/event.hpp"
+#include "proton/handler.hpp"
 #include "proton/connection.hpp"
 #include "proton/value.hpp"
 
 #include <iostream>
 #include <map>
 
-class simple_send : public proton::messaging_handler {
+class simple_send : public proton::handler {
   private:
     proton::url url;
-    proton::counted_ptr<proton::sender> sender;
+    proton::sender sender;
     int sent;
     int confirmed;
     int total;
-  public:
 
+  public:
     simple_send(const std::string &s, int c) : url(s), sent(0), confirmed(0), total(c) {}
 
     void on_start(proton::event &e) {
-        sender = e.container().open_sender(url).ptr();
+        sender = e.container().open_sender(url);
     }
 
     void on_sendable(proton::event &e) {
-        proton::sender& sender = e.sender();
+        proton::sender sender = e.sender();
+        
         while (sender.credit() && sent < total) {
             proton::message msg;
-            msg.id(proton::value(sent + 1));
             std::map<std::string, int> m;
-            m["sequence"] = sent+1;
-            msg.body(proton::as<proton::MAP>(m));
+            m["sequence"] = sent + 1;
+            
+            msg.id(sent + 1);
+            msg.body(m);
+
             sender.send(msg);
             sent++;
         }
     }
 
-    void on_accepted(proton::event &e) {
+    void on_delivery_accept(proton::event &e) {
         confirmed++;
+        
         if (confirmed == total) {
             std::cout << "all messages confirmed" << std::endl;
             e.connection().close();
         }
     }
 
-    void on_disconnected(proton::event &e) {
+    void on_transport_close(proton::event &e) {
         sent = confirmed;
     }
 };
 
 int main(int argc, char **argv) {
-    // Command line options
     std::string address("127.0.0.1:5672/examples");
     int message_count = 100;
     options opts(argc, argv);
+
     opts.add_value(address, 'a', "address", "connect and send to URL", "URL");
     opts.add_value(message_count, 'm', "messages", "send COUNT messages", "COUNT");
+
     try {
         opts.parse();
+
         simple_send send(address, message_count);
         proton::container(send).run();
+
         return 0;
     } catch (const bad_option& e) {
         std::cout << opts << std::endl << e.what() << std::endl;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

@@ -39,9 +39,6 @@ public interface Delivery extends Extendable
 
     public DeliveryState getRemoteState();
 
-    /** TODO is this required?? */
-    public int getMessageFormat();
-
     /**
      * updates the state of the delivery
      *
@@ -118,4 +115,32 @@ public interface Delivery extends Extendable
     public void setDefaultDeliveryState(DeliveryState state);
 
     public DeliveryState getDefaultDeliveryState();
+
+    /**
+     * Sets the message-format for this Delivery, representing the 32bit value using an int.
+     *
+     * The default value is 0 as per the message format defined in the core AMQP 1.0 specification.<p>
+     *
+     * See the following for more details:<br>
+     * <a href="http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html#type-transfer">
+     *          http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html#type-transfer</a><br>
+     * <a href="http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html#type-message-format">
+     *          http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html#type-message-format</a><br>
+     * <a href="http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html#section-message-format">
+     *          http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html#section-message-format</a><br>
+     * <a href="http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html#definition-MESSAGE-FORMAT">
+     *          http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-messaging-v1.0-os.html#definition-MESSAGE-FORMAT</a><br>
+     *
+     * @param messageFormat the message format
+     */
+    public void setMessageFormat(int messageFormat);
+
+    /**
+     * Gets the message-format for this Delivery, representing the 32bit value using an int.
+     *
+     * @return the message-format
+     * @see #setMessageFormat(int)
+     */
+    public int getMessageFormat();
+
 }

@@ -21,6 +21,7 @@ package proton
 
 // #include <proton/connection.h>
 // #include <proton/event.h>
+// #include <proton/error.h>
 // #include <proton/handlers.h>
 // #include <proton/session.h>
 // #include <proton/transport.h>
@@ -32,9 +33,9 @@ import "C"
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"sync"
+	"time"
 	"unsafe"
 )
 
@@ -171,7 +172,7 @@ func (eng *Engine) String() string {
 }
 
 func (eng *Engine) Id() string {
-	return fmt.Sprintf("%eng", &eng)
+	return fmt.Sprintf("%p", eng)
 }
 
 func (eng *Engine) Error() error {
@@ -222,19 +223,35 @@ func (eng *Engine) InjectWait(f func() error) error {
 //
 func (eng *Engine) Server() { eng.transport.SetServer() }
 
-// Close the engine's connection, returns when the engine has exited.
+func (eng *Engine) disconnect() {
+	eng.transport.CloseHead()
+	eng.transport.CloseTail()
+	eng.conn.Close()
+	eng.dispatch()
+}
+
+// Close the engine's connection.
+// If err != nil pass it to the remote end as the close condition.
+// Returns when the remote end closes or disconnects.
 func (eng *Engine) Close(err error) {
-	eng.err.Set(err)
-	eng.Inject(func() {
-		CloseError(eng.connection, err)
-	})
+	eng.Inject(func() { CloseError(eng.connection, err) })
 	<-eng.running
 }
 
-// Disconnect the engine's connection without and AMQP close, returns when the engine has exited.
+// CloseTimeout like Close but disconnect if the remote end doesn't close within timeout.
+func (eng *Engine) CloseTimeout(err error, timeout time.Duration) {
+	eng.Inject(func() { CloseError(eng.connection, err) })
+	select {
+	case <-eng.running:
+	case <-time.After(timeout):
+		eng.Disconnect(err)
+	}
+}
+
+// Disconnect the engine's connection immediately without an AMQP close.
+// Process any termination events before returning.
 func (eng *Engine) Disconnect(err error) {
-	eng.err.Set(err)
-	eng.conn.Close()
+	eng.Inject(func() { eng.transport.Condition().SetError(err); eng.disconnect() })
 	<-eng.running
 }
 
@@ -282,7 +299,7 @@ func (eng *Engine) Run() error {
 
 	wbuf := eng.write.buffer()[:0]
 
-	for eng.err.Get() == nil {
+	for !eng.transport.Closed() {
 		if len(wbuf) == 0 {
 			eng.pop(&wbuf)
 		}
@@ -304,12 +321,19 @@ func (eng *Engine) Run() error {
 				f()
 			}
 		case err := <-readErr:
-			eng.netError(err)
+			eng.transport.Condition().SetError(err)
+			eng.transport.CloseTail()
 		case err := <-writeErr:
-			eng.netError(err)
+			eng.transport.Condition().SetError(err)
+			eng.transport.CloseHead()
 		}
-		eng.process()
+		eng.dispatch()
+		if eng.connection.State().RemoteClosed() && eng.connection.State().LocalClosed() {
+			eng.disconnect()
+		}
 	}
+	eng.err.Set(EndpointError(eng.connection))
+	eng.err.Set(eng.transport.Condition().Error())
 	close(eng.write.buffers)
 	eng.conn.Close() // Make sure connection is closed
 	wait.Wait()
@@ -331,12 +355,6 @@ func (eng *Engine) Run() error {
 		}
 	}
 	return eng.err.Get()
-}
-
-func (eng *Engine) netError(err error) {
-	eng.err.Set(err)
-	eng.transport.CloseHead()
-	eng.transport.CloseTail()
 }
 
 func minInt(a, b int) int {
@@ -377,18 +395,13 @@ func (eng *Engine) push(buf []byte) {
 	}
 }
 
-func (eng *Engine) handle(e Event) {
-	for _, h := range eng.handlers {
-		h.HandleEvent(e)
-	}
-	if e.Type() == ETransportClosed {
-		eng.err.Set(io.EOF)
-	}
-}
+func (eng *Engine) peek() *C.pn_event_t { return C.pn_collector_peek(eng.collector) }
 
-func (eng *Engine) process() {
-	for ce := C.pn_collector_peek(eng.collector); ce != nil; ce = C.pn_collector_peek(eng.collector) {
-		eng.handle(makeEvent(ce, eng))
+func (eng *Engine) dispatch() {
+	for ce := eng.peek(); ce != nil; ce = eng.peek() {
+		for _, h := range eng.handlers {
+			h.HandleEvent(makeEvent(ce, eng))
+		}
 		C.pn_collector_pop(eng.collector)
 	}
 }

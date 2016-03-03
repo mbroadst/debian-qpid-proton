@@ -68,12 +68,11 @@ const char *pn_type_name(pn_type_t type)
   case PN_ARRAY: return "PN_ARRAY";
   case PN_LIST: return "PN_LIST";
   case PN_MAP: return "PN_MAP";
+  default: break;
   }
 
   return "<UNKNOWN>";
 }
-
-const pn_type_t PN_INVALID = (pn_type_t) -1;
 
 static inline void pni_atom_init(pn_atom_t *atom, pn_type_t type)
 {
@@ -267,7 +266,7 @@ int pni_inspect_enter(void *ctx, pn_data_t *data, pni_node_t *node)
       return 0;
     }
     const char *name = (index < grandfields->field_count)
-        ? FIELD_STRINGPOOL+FIELD_FIELDS[grandfields->first_field_index+index]
+        ? FIELD_STRINGPOOL.STRING0+FIELD_FIELDS[grandfields->first_field_index+index]
         : NULL;
     if (name) {
       err = pn_string_addf(str, "%s=", name);
@@ -287,7 +286,7 @@ int pni_inspect_enter(void *ctx, pn_data_t *data, pni_node_t *node)
     return pn_string_addf(str, "{");
   default:
     if (fields && index == 0) {
-      err = pn_string_addf(str, "%s", FIELD_STRINGPOOL+FIELD_NAME[fields->name_index]);
+      err = pn_string_addf(str, "%s", FIELD_STRINGPOOL.STRING0+FIELD_NAME[fields->name_index]);
       if (err) return err;
       err = pn_string_addf(str, "(");
       if (err) return err;
@@ -2129,6 +2128,8 @@ int pn_data_appendn(pn_data_t *data, pn_data_t *src, int limit)
       pn_data_enter(data);
       pn_data_enter(src);
       level++;
+      break;
+    default:
       break;
     }
 

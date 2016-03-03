@@ -24,20 +24,34 @@
 
 #include "proton/reactor.h"
 #include "proton/export.hpp"
-#include "proton/facade.hpp"
+#include "proton/object.hpp"
 
 struct pn_connection_t;
 
 namespace proton {
 
-/** acceptor accepts connections. @see container::listen */
-class acceptor : public counted_facade<pn_acceptor_t, acceptor>
+/// A context for accepting inbound connections.
+///
+/// @see container::listen
+class acceptor : public object<pn_acceptor_t>
 {
   public:
-    /** close the acceptor */
+    /// @cond INTERNAL
+    /// XXX important to expose?
+    acceptor(pn_acceptor_t* a=0) : object<pn_acceptor_t>(a) {}
+    /// @endcond
+
+    /// Close the acceptor.
     PN_CPP_EXTERN void close();
+
+    /// Return the current set of connection options applied to
+    /// inbound connectons by the acceptor.
+    ///
+    /// Note that changes made to the connection options only affect
+    /// connections accepted after this call returns.
+    PN_CPP_EXTERN class connection_options &connection_options();
 };
 
 }
 
-#endif  /*!PROTON_CPP_ACCEPTOR_H*/
+#endif  // PROTON_CPP_ACCEPTOR_H

@@ -29,6 +29,8 @@ import org.apache.qpid.proton.amqp.transport.DeliveryState;
 
 public class DeliveryImpl implements Delivery
 {
+    public static final int DEFAULT_MESSAGE_FORMAT = 0;
+
     private DeliveryImpl _linkPrevious;
     private DeliveryImpl _linkNext;
 
@@ -40,7 +42,7 @@ public class DeliveryImpl implements Delivery
     private DeliveryImpl _transportWorkPrev;
     boolean _transportWork;
 
-    private Record _attachments = new RecordImpl();
+    private Record _attachments;
     private Object _context;
 
     private final byte[] _tag;
@@ -50,6 +52,7 @@ public class DeliveryImpl implements Delivery
     private boolean _remoteSettled;
     private DeliveryState _remoteDeliveryState;
     private DeliveryState _defaultDeliveryState = null;
+    private int _messageFormat = DEFAULT_MESSAGE_FORMAT;
 
     /**
      * A bit-mask representing the outstanding work on this delivery received from the transport layer
@@ -102,9 +105,16 @@ public class DeliveryImpl implements Delivery
         return _remoteSettled;
     }
 
+    @Override
+    public void setMessageFormat(int messageFormat)
+    {
+        _messageFormat = messageFormat;
+    }
+
+    @Override
     public int getMessageFormat()
     {
-        return 0;
+        return _messageFormat;
     }
 
     public void disposition(final DeliveryState state)
@@ -401,6 +411,11 @@ public class DeliveryImpl implements Delivery
 
     public Record attachments()
     {
+        if(_attachments == null)
+        {
+            _attachments = new RecordImpl();
+        }
+
         return _attachments;
     }
 

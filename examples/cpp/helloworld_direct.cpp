@@ -21,27 +21,26 @@
 
 #include "proton/acceptor.hpp"
 #include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
+#include "proton/event.hpp"
+#include "proton/handler.hpp"
 
-//#include "proton/acceptor.hpp"
 #include <iostream>
 
-class hello_world_direct : public proton::messaging_handler {
+class hello_world_direct : public proton::handler {
   private:
     proton::url url;
-    proton::counted_ptr<proton::acceptor> acceptor;
-  public:
+    proton::acceptor acceptor;
 
+  public:
     hello_world_direct(const proton::url& u) : url(u) {}
 
     void on_start(proton::event &e) {
-        acceptor = e.container().listen(url).ptr();
+        acceptor = e.container().listen(url);
         e.container().open_sender(url);
     }
 
     void on_sendable(proton::event &e) {
-        proton::message m;
-        m.body("Hello World!");
+        proton::message m("Hello World!");
         e.sender().send(m);
         e.sender().close();
     }
@@ -50,25 +49,28 @@ class hello_world_direct : public proton::messaging_handler {
         std::cout << e.message().body() << std::endl;
     }
 
-    void on_accepted(proton::event &e) {
+    void on_delivery_accept(proton::event &e) {
         e.connection().close();
     }
 
-    void on_connection_closed(proton::event &e) {
-        acceptor->close();
+    void on_connection_close(proton::event &e) {
+        acceptor.close();
     }
 };
 
 int main(int argc, char **argv) {
     try {
-        // Pick an "unusual" port since we are going to be talking to ourselves, not a broker.
+        // Pick an "unusual" port since we are going to be talking to
+        // ourselves, not a broker.
         std::string url = argc > 1 ? argv[1] : "127.0.0.1:8888/examples";
 
         hello_world_direct hwd(url);
         proton::container(hwd).run();
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

@@ -22,12 +22,11 @@
 #include "proton/error.hpp"
 #include "proton/url.hpp"
 #include "proton/url.h"
-#include <ostream>
-#include <istream>
+#include <sstream>
 
 namespace proton {
 
-url_error::url_error(const std::string& s) throw() : error(s) {}
+url_error::url_error(const std::string& s) : error(s) {}
 
 namespace {
 
@@ -60,7 +59,10 @@ url::url(const url& u) : url_(parse_allow_empty(u.str())) {}
 
 url::~url() { pn_url_free(url_); }
 
-url& url::operator=(const url& u) { replace(url_, parse_allow_empty(u.str())); return *this; }
+url& url::operator=(const url& u) {
+    if (this != &u) replace(url_, parse_allow_empty(u.str()));
+    return *this;
+}
 
 void url::parse(const std::string& s) { replace(url_, parse_throw(s)); }
 
@@ -93,6 +95,18 @@ void url::defaults() {
 
 const std::string url::AMQP("amqp");
 const std::string url::AMQPS("amqps");
+
+uint16_t url::port_int() const {
+    // TODO aconway 2015-10-27: full service name lookup
+    if (port() == AMQP) return 5672;
+    if (port() == AMQPS) return 5671;
+    std::istringstream is(port());
+    uint16_t result;
+    is >> result;
+    if (is.fail())
+        throw url_error("invalid port '" + port() + "'");
+    return result;
+}
 
 std::ostream& operator<<(std::ostream& o, const url& u) { return o << u.str(); }
 

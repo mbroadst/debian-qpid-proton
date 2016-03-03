@@ -42,7 +42,7 @@ find_package(PythonInterp REQUIRED)
 
 if (CHECK_SYSINSTALL_PYTHON)
   execute_process(COMMAND ${PYTHON_EXECUTABLE}
-    -c "from distutils.sysconfig import get_python_lib; print get_python_lib(True)"
+    -c "from distutils.sysconfig import get_python_lib; print(get_python_lib(True))"
     OUTPUT_VARIABLE PYTHON_SITEARCH_PACKAGES_DEFAULT
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 else ()
@@ -87,7 +87,8 @@ if (EPYDOC_EXE)
    add_custom_target(docs-py COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../../env.py --
      PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_CURRENT_SOURCE_DIR}
      ${EPYDOC_EXE} -v --no-private --html -o ${CMAKE_CURRENT_BINARY_DIR}/html
-     ${PY_DOC_FILES})
+     ${PY_DOC_FILES}
+     DEPENDENCIES ${SWIG_MODULE_${cproton}_REAL_NAME})
    add_dependencies(docs docs-py)
    install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/html/"
            DESTINATION "${PROTON_SHARE}/docs/api-py"
@@ -117,3 +118,5 @@ install(FILES ${PROTON_ARTIFACTS}
 install(TARGETS ${SWIG_MODULE_cproton_REAL_NAME}
         DESTINATION ${PYTHON_SITEARCH_PACKAGES}
         COMPONENT Python)
+
+set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "html;tutorial")

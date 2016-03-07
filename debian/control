@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Debian Middleware Maintainers <pkg-middleware-maintainers@lists.alioth.debian.org>
 Uploaders: Darryl L. Pierce <mcpierce@gmail.com>, Daniel Pocock <daniel@pocock.pro>
 Build-Depends: debhelper (>= 9.0.0~),
+               dh-python,
                cmake,
 	       swig,
 	       pkg-config,

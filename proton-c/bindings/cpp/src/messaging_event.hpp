@@ -33,7 +33,7 @@ class connection;
 class message;
 
 /** An event for the proton::messaging_handler */
-class messaging_event : public proton_event
+class messaging_event : public event
 {
   public:
 
@@ -43,59 +43,45 @@ class messaging_event : public proton_event
 
     /** Event types for a messaging_handler */
     enum event_type {
-        PROTON = 0,  // Wrapped pn_event_t
-        ABORT,
-        ACCEPTED,
-        COMMIT,
-        CONNECTION_CLOSED,
-        CONNECTION_CLOSING,
-        CONNECTION_ERROR,
-        CONNECTION_OPENED,
-        CONNECTION_OPENING,
-        DISCONNECTED,
-        FETCH,
-        ID_LOADED,
-        LINK_CLOSED,
-        LINK_CLOSING,
-        LINK_OPENED,
-        LINK_OPENING,
-        LINK_ERROR,
-        MESSAGE,
-        QUIT,
-        RECORD_INSERTED,
-        RECORDS_LOADED,
-        REJECTED,
-        RELEASED,
-        REQUEST,
-        RESPONSE,
-        SENDABLE,
-        SESSION_CLOSED,
-        SESSION_CLOSING,
-        SESSION_OPENED,
-        SESSION_OPENING,
-        SESSION_ERROR,
-        SETTLED,
         START,
-        TIMER,
-        TRANSACTION_ABORTED,
-        TRANSACTION_COMMITTED,
-        TRANSACTION_DECLARED,
-        TRANSPORT_CLOSED
+        MESSAGE,
+        SENDABLE,
+        TRANSPORT_CLOSE,
+        TRANSPORT_ERROR,
+        CONNECTION_OPEN,
+        CONNECTION_CLOSE,
+        CONNECTION_ERROR,
+        LINK_OPEN,
+        LINK_CLOSE,
+        LINK_ERROR,
+        SESSION_OPEN,
+        SESSION_CLOSE,
+        SESSION_ERROR,
+        DELIVERY_ACCEPT,
+        DELIVERY_REJECT,
+        DELIVERY_RELEASE,
+        DELIVERY_SETTLE,
+        TRANSACTION_DECLARE,
+        TRANSACTION_COMMIT,
+        TRANSACTION_ABORT,
+        TIMER
     };
 
-    messaging_event(pn_event_t *ce, proton_event::event_type t, class container &c);
     messaging_event(event_type t, proton_event &parent);
+    messaging_event(event_type t, pn_event_t*);
     ~messaging_event();
 
-    virtual PN_CPP_EXTERN void dispatch(handler &h);
-    virtual PN_CPP_EXTERN class connection &connection() const;
-    virtual PN_CPP_EXTERN class sender& sender() const;
-    virtual PN_CPP_EXTERN class receiver& receiver() const;
-    virtual PN_CPP_EXTERN class link& link() const;
-    virtual PN_CPP_EXTERN class delivery& delivery() const;
-    virtual PN_CPP_EXTERN class message& message() const;
+    class container& container() const;
+    class transport transport() const;
+    class connection connection() const;
+    class session session() const;
+    class sender sender() const;
+    class receiver receiver() const;
+    class link link() const;
+    class delivery delivery() const;
+    class message& message() const;
 
-    PN_CPP_EXTERN event_type type() const;
+    event_type type() const;
 
   private:
   friend class messaging_adapter;

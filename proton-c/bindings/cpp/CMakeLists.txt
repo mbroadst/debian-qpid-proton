@@ -26,13 +26,10 @@ include_directories(
 
 set(qpid-proton-cpp-source
   src/acceptor.cpp
-  src/blocking_connection.cpp
-  src/blocking_connection_impl.cpp
-  src/blocking_fetcher.cpp
-  src/blocking_link.cpp
-  src/blocking_receiver.cpp
-  src/blocking_sender.cpp
+  src/scalar.cpp
+  src/condition.cpp
   src/connection.cpp
+  src/connection_options.cpp
   src/connector.cpp
   src/container.cpp
   src/container_impl.cpp
@@ -43,31 +40,42 @@ set(qpid-proton-cpp-source
   src/duration.cpp
   src/encoder.cpp
   src/endpoint.cpp
+  src/connection_engine.cpp
   src/error.cpp
   src/event.cpp
-  src/facade.cpp
-  src/handler.cpp
+  src/id_generator.cpp
   src/link.cpp
+  src/link_options.cpp
   src/message.cpp
   src/messaging_adapter.cpp
   src/messaging_event.cpp
-  src/messaging_handler.cpp
+  src/handler.cpp
+  src/object.cpp
   src/proton_bits.cpp
   src/proton_event.cpp
   src/proton_handler.cpp
   src/reactor.cpp
   src/receiver.cpp
+  src/reconnect_timer.cpp
+  src/sasl.cpp
   src/sender.cpp
   src/session.cpp
-  src/request_response.cpp
+  src/ssl.cpp
+  src/ssl_domain.cpp
   src/task.cpp
   src/terminus.cpp
   src/transport.cpp
   src/types.cpp
   src/url.cpp
   src/uuid.cpp
+  src/value.cpp
   )
 
+if(MSVC)
+  list(APPEND qpid-proton-cpp-source src/windows/io.cpp)
+else(MSVC)
+  list(APPEND qpid-proton-cpp-source src/posix/io.cpp)
+endif(MSVC)
 
 set_source_files_properties (
   ${qpid-proton-cpp-source}
@@ -91,7 +99,8 @@ set_target_properties (
 ## Install
 
 install(TARGETS qpid-proton-cpp
-  EXPORT  proton
+  EXPORT  proton-cpp
+  RUNTIME DESTINATION bin
   ARCHIVE DESTINATION ${LIB_INSTALL_DIR}
   LIBRARY DESTINATION ${LIB_INSTALL_DIR})
 
@@ -118,7 +127,7 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/tests/tools/apps/cpp ${CMAKE_BINARY_DIR}/te
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/libqpid-proton-cpp.pc.in
   ${CMAKE_CURRENT_BINARY_DIR}/libqpid-proton-cpp.pc @ONLY)
-install (FILES 
+install (FILES
   ${CMAKE_CURRENT_BINARY_DIR}/libqpid-proton-cpp.pc
   DESTINATION ${LIB_INSTALL_DIR}/pkgconfig)
 
@@ -143,7 +152,7 @@ install (FILES
 
 ## Test
 if (ENABLE_VALGRIND AND VALGRIND_EXE)
-  set(memcheck-cmd ${VALGRIND_EXE} --error-exitcode=1 --quiet --leak-check=full --trace-children=yes)
+  set(memcheck-cmd ${VALGRIND_EXE} --error-exitcode=42 --quiet --leak-check=full --trace-children=yes)
 endif ()
 
 macro(add_cpp_test test)
@@ -160,4 +169,7 @@ macro(add_cpp_test test)
 endmacro(add_cpp_test)
 
 add_cpp_test(interop_test ${CMAKE_SOURCE_DIR}/tests)
-add_cpp_test(conversion_test ${CMAKE_SOURCE_DIR}/tests)
+add_cpp_test(message_test)
+add_cpp_test(value_test)
+add_cpp_test(scalar_test)
+add_cpp_test(engine_test)

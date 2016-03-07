@@ -18,12 +18,13 @@
  * under the License.
  *
  */
-#include "proton/container.hpp"
 #include "proton/connection.hpp"
+
+#include "proton/container.hpp"
 #include "proton/transport.hpp"
-#include "proton/handler.hpp"
 #include "proton/session.hpp"
 #include "proton/error.hpp"
+#include "connector.hpp"
 
 #include "msg.hpp"
 #include "contexts.hpp"
@@ -37,51 +38,86 @@
 
 namespace proton {
 
-transport &connection::transport() const {
-    return *transport::cast(pn_connection_transport(pn_cast(this)));
+transport connection::transport() const {
+    return pn_connection_transport(pn_object());
 }
 
-void connection::open() { pn_connection_open(pn_cast(this)); }
+void connection::open() {
+    connector *connector = dynamic_cast<class connector*>(
+        connection_context::get(pn_object()).handler.get());
+    if (connector)
+        connector->apply_options();
+    // Inbound connections should already be configured.
+    pn_connection_open(pn_object());
+}
 
-void connection::close() { pn_connection_close(pn_cast(this)); }
+void connection::close() { pn_connection_close(pn_object()); }
+
+void connection::release() { pn_connection_release(pn_object()); }
 
 std::string connection::host() const {
-    return std::string(pn_connection_get_hostname(pn_cast(this)));
+    return std::string(pn_connection_get_hostname(pn_object()));
+}
+
+void connection::host(const std::string& h) {
+    pn_connection_set_hostname(pn_object(), h.c_str());
+}
+
+std::string connection::container_id() const {
+    const char* id = pn_connection_get_container(pn_object());
+    return id ? std::string(id) : std::string();
 }
 
 container& connection::container() const {
-    return container_context(pn_object_reactor(pn_cast(this)));
+    pn_reactor_t *r = pn_object_reactor(pn_object());
+    if (!r)
+        throw error("connection does not have a container");
+    return container_context::get(r);
 }
 
 link_range connection::find_links(endpoint::state mask) const {
-    return link_range(link_iterator(link::cast(pn_link_head(pn_cast(this), mask))));
+    return link_range(link_iterator(pn_link_head(pn_object(), mask)));
 }
 
 session_range connection::find_sessions(endpoint::state mask) const {
-    return session_range(
-        session_iterator(session::cast(pn_session_head(pn_cast(this), mask))));
+    return session_range(session_iterator(pn_session_head(pn_object(), mask)));
 }
 
-session& connection::open_session() { return *session::cast(pn_session(pn_cast(this))); }
+session connection::open_session() { return pn_session(pn_object()); }
 
-session& connection::default_session() {
-    struct connection_context& ctx = connection_context::get(pn_cast(this));
+session connection::default_session() {
+    connection_context& ctx = connection_context::get(pn_object());
     if (!ctx.default_session) {
-        ctx.default_session = &open_session();
-        ctx.default_session->open();
+        // Note we can't use a proton::session here because we don't want to own
+        // a session reference. The connection owns the session, owning it here as well
+        // would create a circular ownership.
+        ctx.default_session = pn_session(pn_object());
+        pn_session_open(ctx.default_session);
     }
-    return *ctx.default_session;
+    return ctx.default_session;
 }
 
-sender& connection::open_sender(const std::string &addr, handler *h) {
-    return default_session().open_sender(addr, h);
+sender connection::open_sender(const std::string &addr, const link_options &opts) {
+    return default_session().open_sender(addr, opts);
 }
 
-receiver& connection::open_receiver(const std::string &addr, bool dynamic, handler *h)
+receiver connection::open_receiver(const std::string &addr, const link_options &opts)
 {
-    return default_session().open_receiver(addr, dynamic, h);
+    return default_session().open_receiver(addr, opts);
 }
 
-endpoint::state connection::state() const { return pn_connection_state(pn_cast(this)); }
+endpoint::state connection::state() const { return pn_connection_state(pn_object()); }
+
+condition connection::local_condition() const {
+    return condition(pn_connection_condition(pn_object()));
+}
+
+condition connection::remote_condition() const {
+    return condition(pn_connection_remote_condition(pn_object()));
+}
+
+void connection::user(const std::string &name) { pn_connection_set_user(pn_object(), name.c_str()); }
+
+void connection::password(const std::string &pass) { pn_connection_set_password(pn_object(), pass.c_str()); }
 
 }

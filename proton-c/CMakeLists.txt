@@ -43,6 +43,7 @@ else()
   set (OPTIONAL_ARG OPTIONAL)
   add_custom_target(docs)
 endif()
+add_custom_target(doc DEPENDS docs)
 
 # Set the default SSL/TLS implementation
 find_package(OpenSSL)
@@ -61,16 +62,16 @@ mark_as_advanced(CYRUS_SASL_LIBRARY CYRUS_SASL_INCLUDE_DIR)
 find_program(SASLPASSWD_EXE saslpasswd2 DOC "Program used to make SASL user db for testing")
 mark_as_advanced(SASLPASSWD_EXE)
 
+set(ssl_impl, none)
 if(PN_WINAPI)
   set(ssl_impl schannel)
   set(ssl_providers "'none','schannel','openssl'")
 else(PN_WINAPI)
-  set(ssl_impl, none)
+  if (OPENSSL_FOUND)
+    set(ssl_impl openssl)
+  endif (OPENSSL_FOUND)
   set(ssl_providers "'none','openssl'")
 endif(PN_WINAPI)
-if (OPENSSL_FOUND)
-  set(ssl_impl openssl)
-endif (OPENSSL_FOUND)
 set(SSL_IMPL ${ssl_impl} CACHE STRING "Library to use for SSL/TLS support. Valid values: ${ssl_providers}")
 
 set(sasl_providers cyrus none)
@@ -218,7 +219,7 @@ if (CMAKE_COMPILER_IS_GNUCC)
   endif (ENABLE_WARNING_ERROR)
   set (COMPILE_WARNING_FLAGS "${WERROR} -Wall -pedantic-errors")
   # C++ allow "%z" format specifier and variadic macros
-  set (CXX_WARNING_FLAGS "${COMPILE_WARNING_FLAGS} -Wno-format -Wno-variadic-macros" CACHE STRING "C++ warning flags")
+  set (CXX_WARNING_FLAGS "${COMPILE_WARNING_FLAGS} -Wno-format -Wno-variadic-macros")
   if (NOT BUILD_WITH_CXX)
     set (COMPILE_WARNING_FLAGS "${COMPILE_WARNING_FLAGS} -Wstrict-prototypes")
     set (COMPILE_LANGUAGE_FLAGS "-std=c99")
@@ -246,6 +247,9 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   if (ENABLE_WARNING_ERROR)
     set (WERROR "-Werror")
   endif (ENABLE_WARNING_ERROR)
+  # TODO aconway 2016-01-06: we should be able to clean up the code and turn on
+  # some of these warnings.
+  set (CXX_WARNING_FLAGS "${WERROR} -pedantic -Weverything -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-float-equal -Wno-padded -Wno-sign-conversion -Wno-switch-enum -Wno-weak-vtables -Wno-exit-time-destructors -Wno-global-constructors -Wno-shorten-64-to-32 -Wno-documentation -Wno-documentation-unknown-command -Wno-old-style-cast -Wno-missing-noreturn")
 endif()
 
 if (MSVC)
@@ -344,7 +348,6 @@ set (qpid-proton-include
   include/proton/codec.h
   include/proton/condition.h
   include/proton/connection.h
-  include/proton/container.h
   include/proton/delivery.h
   include/proton/disposition.h
   include/proton/engine.h
@@ -447,11 +450,11 @@ install (TARGETS qpid-proton
 # Install windows qpid-proton pdb files
 if (MSVC)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Debug/qpid-proton${CMAKE_DEBUG_POSTFIX}.pdb
-    DESTINATION bin 
+    DESTINATION bin
     CONFIGURATIONS Debug
     OPTIONAL)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/RelWithDebInfo/qpid-proton.pdb
-    DESTINATION bin 
+    DESTINATION bin
     CONFIGURATIONS RelWithDebInfo
     OPTIONAL)
 endif (MSVC)
@@ -466,7 +469,7 @@ install (FILES  ${CMAKE_CURRENT_BINARY_DIR}/include/proton/version.h
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/libqpid-proton.pc.in
   ${CMAKE_CURRENT_BINARY_DIR}/libqpid-proton.pc @ONLY)
-install (FILES 
+install (FILES
   ${CMAKE_CURRENT_BINARY_DIR}/libqpid-proton.pc
   DESTINATION ${LIB_INSTALL_DIR}/pkgconfig)
 
@@ -552,9 +555,11 @@ if (BUILD_PYTHON)
   if (CMAKE_SYSTEM_NAME STREQUAL Linux AND TOX_TEST)
      find_program(TOX_EXE "tox")
      if (TOX_EXE)
+       configure_file(
+         "${CMAKE_CURRENT_SOURCE_DIR}/tox.ini.in"
+         "${CMAKE_CURRENT_BINARY_DIR}/tox.ini")
          to_native_path ("${py_path}" py_path)
          add_test (NAME python-tox-test
-		   WORKING_DIRECTORY ${py_src}
                    COMMAND ${env_py}
 		   "PATH=${py_path}" "QPID_PROTON_SRC=${CMAKE_CURRENT_SOURCE_DIR}/../"
                    "CLASSPATH=${CMAKE_BINARY_DIR}/proton-j/proton-j.jar"

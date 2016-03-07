@@ -18,28 +18,56 @@
  */
 
 #include "proton_bits.hpp"
-#include "proton/value.hpp"
+#include "proton/data.hpp"
 
 #include <proton/codec.h>
 
+#include <ostream>
+
 namespace proton {
 
-void data::operator delete(void *p) { ::pn_data_free(reinterpret_cast<pn_data_t*>(p)); }
+data& data::copy(const data& x) { ::pn_data_copy(pn_object(), x.pn_object()); return *this; }
 
-data& data::operator=(const data& x) { ::pn_data_copy(pn_cast(this), pn_cast(&x)); return *this; }
+void data::clear() { ::pn_data_clear(pn_object()); }
 
-void data::clear() { ::pn_data_clear(pn_cast(this)); }
+bool data::empty() const { return ::pn_data_size(pn_object()) == 0; }
 
-bool data::empty() const { return ::pn_data_size(pn_cast(this)) == 0; }
+uintptr_t data::point() const { return pn_data_point(pn_object()); }
 
-std::ostream& operator<<(std::ostream& o, const data& d) { return o << inspectable(pn_cast(&d)); }
+void data::restore(uintptr_t h) { pn_data_restore(pn_object(), h); }
 
-pn_unique_ptr<data> data::create() { return pn_unique_ptr<data>(cast(::pn_data(0))); }
+void data::narrow() { pn_data_narrow(pn_object()); }
 
-encoder& data::encoder() { return reinterpret_cast<class encoder&>(*this); }
-decoder& data::decoder() { return reinterpret_cast<class decoder&>(*this); }
+void data::widen() { pn_data_widen(pn_object()); }
 
-type_id data::type() const { return reinterpret_cast<const class decoder&>(*this).type(); }
+int data::append(data src) { return pn_data_append(pn_object(), src.pn_object());}
+
+int data::appendn(data src, int limit) { return pn_data_appendn(pn_object(), src.pn_object(), limit);}
+
+bool data::next() const { return pn_data_next(pn_object()); }
+
+
+namespace {
+struct save_state {
+    data data_;
+    uintptr_t handle;
+    save_state(data d) : data_(d), handle(data_.point()) {}
+    ~save_state() { if (!!data_) data_.restore(handle); }
+};
+}
+
+std::ostream& operator<<(std::ostream& o, const data& d) {
+    save_state s(d.pn_object());
+    d.decoder().rewind();
+    return o << inspectable(d.pn_object());
+}
+
+data data::create() { return take_ownership(pn_data(0)); }
+
+encoder data::encoder() { return proton::encoder(pn_object()); }
+decoder data::decoder() { return proton::decoder(pn_object()); }
+
+type_id data::type() const { return decoder().type(); }
 
 namespace {
 
@@ -54,12 +82,12 @@ template <class T> int compare(const T& a, const T& b) {
 }
 
 int compare_container(data& a, data& b) {
-    decoder::scope sa(a.decoder()), sb(b.decoder());
+    scope sa(a.decoder()), sb(b.decoder());
     // Compare described vs. not-described.
     int cmp = compare(sa.is_described, sb.is_described);
     if (cmp) return cmp;
     // Lexical sort (including descriptor if there is one)
-    size_t min_size = std::min(sa.size, sb.size) + int(sa.is_described);
+    size_t min_size = std::min(sa.size, sb.size) + size_t(sa.is_described);
     for (size_t i = 0; i < min_size; ++i) {
         cmp = compare_next(a, b);
         if (cmp) return cmp;
@@ -82,13 +110,13 @@ int compare_next(data& a, data& b) {
     if (cmp) return cmp;
 
     switch (ta) {
-      case NULL_: return 0;
+      case NULL_TYPE: return 0;
       case ARRAY:
       case LIST:
       case MAP:
       case DESCRIBED:
         return compare_container(a, b);
-      case BOOL: return compare_simple<amqp_bool>(a, b);
+      case BOOLEAN: return compare_simple<amqp_boolean>(a, b);
       case UBYTE: return compare_simple<amqp_ubyte>(a, b);
       case BYTE: return compare_simple<amqp_byte>(a, b);
       case USHORT: return compare_simple<amqp_ushort>(a, b);
@@ -114,6 +142,8 @@ int compare_next(data& a, data& b) {
 }
 
 int compare(data& a, data& b) {
+    save_state s1(a);
+    save_state s2(b);
     a.decoder().rewind();
     b.decoder().rewind();
     while (a.decoder().more() && b.decoder().more()) {
@@ -126,10 +156,10 @@ int compare(data& a, data& b) {
 }
 } // namespace
 
-bool data::operator==(const data& x) const {
+bool data::equal(const data& x) const {
     return compare(const_cast<data&>(*this), const_cast<data&>(x)) == 0;
 }
-bool data::operator<(const data& x) const {
+bool data::less(const data& x) const {
     return compare(const_cast<data&>(*this), const_cast<data&>(x)) < 0;
 }
 

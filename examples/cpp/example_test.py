@@ -23,7 +23,9 @@ import unittest
 import os, sys, socket, time
 from  random import randrange
 from subprocess import Popen, PIPE, STDOUT
+from copy import copy
 import platform
+from os.path import dirname as dirname
 
 def cmdline(*args):
     """Adjust executable name args[0] for windows and/or valgrind"""
@@ -31,7 +33,8 @@ def cmdline(*args):
     if platform.system() == "Windows":
         args[0] += ".exe"
     if "VALGRIND" in os.environ and os.environ["VALGRIND"]:
-        args = [os.environ["VALGRIND"], "-q"] + args
+        args = [os.environ["VALGRIND"], "--error-exitcode=42", "--quiet",
+                "--leak-check=full"] + args
     return args
 
 def background(*args):
@@ -81,6 +84,11 @@ def pick_addr():
     p =  randrange(10000, 20000)
     return "127.0.0.1:%s" % p
 
+def ssl_certs_dir():
+    """Absolute path to the test SSL certificates"""
+    pn_root = dirname(dirname(dirname(sys.argv[0])))
+    return os.path.join(pn_root, "examples/cpp/ssl_certs")
+
 class Broker(object):
     """Run the test broker"""
 
@@ -97,8 +105,9 @@ class Broker(object):
             cls._broker = None
 
     def __init__(self):
+        broker_exe = os.environ.get("TEST_BROKER") or "broker"
         self.addr = pick_addr()
-        cmd = cmdline("broker", "-a", self.addr)
+        cmd = cmdline(broker_exe, "-a", self.addr)
         try:
             self.process = Popen(cmd, stdout=NULL, stderr=sys.stderr)
             wait_addr(self.addr)
@@ -116,17 +125,12 @@ class ExampleTest(unittest.TestCase):
     def test_helloworld(self):
         b = Broker.get()
         hw = execute("helloworld", b.addr)
-        self.assertEqual('"Hello World!"\n', hw)
-
-    def test_helloworld_blocking(self):
-        b = Broker.get()
-        hw = execute("helloworld_blocking", b.addr, b.addr)
-        self.assertEqual('"Hello World!"\n', hw)
+        self.assertEqual('Hello World!\n', hw)
 
     def test_helloworld_direct(self):
         addr = pick_addr()
         hw = execute("helloworld_direct", addr)
-        self.assertEqual('"Hello World!"\n', hw)
+        self.assertEqual('Hello World!\n', hw)
 
     def test_simple_send_recv(self):
         b = Broker.get()
@@ -156,10 +160,10 @@ class ExampleTest(unittest.TestCase):
         send_expect = "direct_send listening on amqp://%s\nall messages confirmed\n" % (addr)
         self.assertEqual(send_expect, verify(send))
 
-    CLIENT_EXPECT=""""Twas brillig, and the slithy toves" => "TWAS BRILLIG, AND THE SLITHY TOVES"
-"Did gire and gymble in the wabe." => "DID GIRE AND GYMBLE IN THE WABE."
-"All mimsy were the borogroves," => "ALL MIMSY WERE THE BOROGROVES,"
-"And the mome raths outgrabe." => "AND THE MOME RATHS OUTGRABE."
+    CLIENT_EXPECT="""Twas brillig, and the slithy toves => TWAS BRILLIG, AND THE SLITHY TOVES
+Did gire and gymble in the wabe. => DID GIRE AND GYMBLE IN THE WABE.
+All mimsy were the borogroves, => ALL MIMSY WERE THE BOROGROVES,
+And the mome raths outgrabe. => AND THE MOME RATHS OUTGRABE.
 """
     def test_simple_recv_send(self):
         # Start receiver first, then run sender"""
@@ -178,14 +182,6 @@ class ExampleTest(unittest.TestCase):
         finally:
             server.kill()
 
-    def test_request_response(self):
-        b = Broker.get()
-        server = background("server", "-a", b.addr)
-        try:
-            self.assertEqual(execute("sync_client", "-a", b.addr), self.CLIENT_EXPECT)
-        finally:
-            server.kill()
-
     def test_request_response_direct(self):
         addr = pick_addr()
         server = background("server_direct", "-a", addr+"/examples")
@@ -197,42 +193,62 @@ class ExampleTest(unittest.TestCase):
 
     def test_encode_decode(self):
         expect="""
-== Simple values: int, string, bool
-Values: int(42), string("foo"), bool(true)
-Extracted: 42, foo, 1
-Encoded as AMQP in 8 bytes
-Decoded: 42, foo, 1
-
-== Specific AMQP types: byte, long, symbol
-Values: byte(120), long(123456789123456789), symbol(:bar)
-Extracted (with conversion) 120, 123456789123456789, bar
-Extracted (exact) x, 123456789123456789, bar
-
-== Array, list and map.
-Values: array<int>[int(1), int(2), int(3)], list[int(4), int(5)], map{string("one"):int(1), string("two"):int(2)}
-Extracted: [ 1 2 3 ], [ 4 5 ], { one:1 two:2 }
+== Array, list and map of uniform type.
+array<int>[int(1), int(2), int(3)]
+[ 1 2 3 ]
+list[int(1), int(2), int(3)]
+[ 1 2 3 ]
+map{string(one):int(1), string(two):int(2)}
+{ one:1 two:2 }
+map{string(z):int(3), string(a):int(4)}
+[ z:3 a:4 ]
 
 == List and map of mixed type values.
-Values: list[int(42), string("foo")], map{int(4):string("four"), string("five"):int(5)}
-Extracted: [ 42 "foo" ], { 4:"four" "five":5 }
+list[int(42), string(foo)]
+[ 42 foo ]
+map{int(4):string(four), string(five):int(5)}
+{ 4:four five:5 }
 
 == Insert with stream operators.
-Values: array<int>[int(1), int(2), int(3)]
-Values: list[int(42), bool(false), symbol(:x)]
-Values: map{string("k1"):int(42), symbol(:"k2"):bool(false)}
+array<int>[int(1), int(2), int(3)]
+list[int(42), boolean(false), symbol(x)]
+map{string(k1):int(42), symbol(k2):boolean(false)}
 """
         self.maxDiff = None
         self.assertEqual(expect, execute("encode_decode"))
 
     def test_recurring_timer(self):
-        expect="""Tick...
-Tick...
-Tock...
+        env = copy(os.environ)        # Disable valgrind, this test is time-sensitive.
+        if "VALGRIND" in os.environ:
+            del os.environ["VALGRIND"]
+        try:
+            expect="""Tick...
 Tick...
 Tock...
 """
-        self.maxDiff = None
-        self.assertEqual(expect, execute("recurring_timer", "-t", "3"))
+            self.maxDiff = None
+            self.assertEqual(expect, execute("recurring_timer", "-t", ".05", "-k", ".01"))
+        finally:
+            os.environ = env    # Restore environment
+
+    def test_ssl(self):
+        # SSL without SASL
+        expect="""Outgoing client connection connected via SSL.  Server certificate identity CN=test_server
+Hello World!
+"""
+        addr = "amqps://" + pick_addr() + "/examples"
+        ignore_first_line, ignore_nl, ssl_hw = execute("ssl", addr, ssl_certs_dir()).partition('\n')
+        self.assertEqual(expect, ssl_hw)
+
+    def test_ssl_client_cert(self):
+        # SSL with SASL EXTERNAL
+        expect="""Inbound client certificate identity CN=test_client
+Outgoing client connection connected via SSL.  Server certificate identity CN=test_server
+Hello World!
+"""
+        addr = "amqps://" + pick_addr() + "/examples"
+        ignore_first_line, ignore_nl, ssl_hw = execute("ssl_client_cert", addr, ssl_certs_dir()).partition('\n')
+        self.assertEqual(expect, ssl_hw)
 
 if __name__ == "__main__":
     unittest.main()

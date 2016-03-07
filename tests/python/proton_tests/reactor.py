@@ -18,9 +18,11 @@ from __future__ import absolute_import
 # under the License.
 #
 
-from .common import Test, SkipTest
-from proton.reactor import Reactor
-from proton.handlers import CHandshaker
+import time
+from .common import Test, SkipTest, TestServer, free_tcp_port, ensureCanTestExtendedSASL
+from proton.reactor import Container, Reactor, ApplicationEvent, EventInjector
+from proton.handlers import CHandshaker, MessagingHandler
+from proton import Handler
 
 class Barf(Exception):
     pass
@@ -400,3 +402,140 @@ class HandlerDerivationTest(Test):
             assert False, "expected to barf"
         except:
             assert h.init, "excpected the init"
+
+
+class ApplicationEventTest(Test):
+    """Test application defined events and handlers."""
+
+    class MyTestServer(TestServer):
+        def __init__(self):
+            super(ApplicationEventTest.MyTestServer, self).__init__()
+
+    class MyHandler(Handler):
+        def __init__(self, test):
+            super(ApplicationEventTest.MyHandler, self).__init__()
+            self._test = test
+
+        def on_hello(self, event):
+            # verify PROTON-1056
+            self._test.hello_rcvd = str(event)
+
+        def on_goodbye(self, event):
+            self._test.goodbye_rcvd = str(event)
+
+    def setUp(self):
+        import os
+        if not hasattr(os, 'pipe'):
+          # KAG: seems like Jython doesn't have an os.pipe() method
+          raise SkipTest()
+        if os.name=="nt":
+          # Correct implementation on Windows is complicated
+          raise SkipTest("PROTON-1071")
+        self.server = ApplicationEventTest.MyTestServer()
+        self.server.reactor.handler.add(ApplicationEventTest.MyHandler(self))
+        self.event_injector = EventInjector()
+        self.hello_event = ApplicationEvent("hello")
+        self.goodbye_event = ApplicationEvent("goodbye")
+        self.server.reactor.selectable(self.event_injector)
+        self.hello_rcvd = None
+        self.goodbye_rcvd = None
+        self.server.start()
+
+    def tearDown(self):
+        self.server.stop()
+
+    def _wait_for(self, predicate, timeout=10.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if predicate():
+                break
+            time.sleep(0.1)
+        assert predicate()
+
+    def test_application_events(self):
+        self.event_injector.trigger(self.hello_event)
+        self._wait_for(lambda: self.hello_rcvd is not None)
+        self.event_injector.trigger(self.goodbye_event)
+        self._wait_for(lambda: self.goodbye_rcvd is not None)
+
+
+class AuthenticationTestHandler(MessagingHandler):
+    def __init__(self):
+        super(AuthenticationTestHandler, self).__init__()
+        port = free_tcp_port()
+        self.url = "localhost:%i" % port
+        self.verified = False
+
+    def on_start(self, event):
+        self.listener = event.container.listen(self.url)
+
+    def on_connection_opened(self, event):
+        event.connection.close()
+
+    def on_connection_opening(self, event):
+        assert event.connection.transport.user == "user@proton"
+        self.verified = True
+
+    def on_connection_closed(self, event):
+        event.connection.close()
+        self.listener.close()
+
+    def on_connection_error(self, event):
+        event.connection.close()
+        self.listener.close()
+
+class ContainerTest(Test):
+    """Test container subclass of reactor."""
+
+    def test_event_has_container_attribute(self):
+        ensureCanTestExtendedSASL()
+        class TestHandler(MessagingHandler):
+            def __init__(self):
+                super(TestHandler, self).__init__()
+                port = free_tcp_port()
+                self.url = "localhost:%i" % port
+
+            def on_start(self, event):
+                self.listener = event.container.listen(self.url)
+
+            def on_connection_closing(self, event):
+                event.connection.close()
+                self.listener.close()
+        test_handler = TestHandler()
+        container = Container(test_handler)
+        class ConnectionHandler(MessagingHandler):
+            def __init__(self):
+                super(ConnectionHandler, self).__init__()
+
+            def on_connection_opened(self, event):
+                event.connection.close()
+                assert event.container == event.reactor
+                assert event.container == container
+        container.connect(test_handler.url, handler=ConnectionHandler())
+        container.run()
+
+    def test_authentication_via_url(self):
+        ensureCanTestExtendedSASL()
+        test_handler = AuthenticationTestHandler()
+        container = Container(test_handler)
+        container.connect("%s:password@%s" % ("user%40proton", test_handler.url), reconnect=False)
+        container.run()
+        assert test_handler.verified
+
+    def test_authentication_via_container_attributes(self):
+        ensureCanTestExtendedSASL()
+        test_handler = AuthenticationTestHandler()
+        container = Container(test_handler)
+        container.user = "user@proton"
+        container.password = "password"
+        container.connect(test_handler.url, reconnect=False)
+        container.run()
+        assert test_handler.verified
+
+    def test_authentication_via_kwargs(self):
+        ensureCanTestExtendedSASL()
+        test_handler = AuthenticationTestHandler()
+        container = Container(test_handler)
+        container.connect(test_handler.url, user="user@proton", password="password", reconnect=False)
+        container.run()
+        assert test_handler.verified

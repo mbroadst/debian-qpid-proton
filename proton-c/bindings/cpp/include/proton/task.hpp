@@ -21,20 +21,28 @@
  * under the License.
  *
  */
+
+/// @cond INTERNAL
+/// XXX needs more discussion
+    
 #include "proton/export.hpp"
-#include "proton/facade.hpp"
+#include "proton/object.hpp"
 
 #include "proton/reactor.h"
 
 namespace proton {
 
-/** A task for timer events */
-class task : public counted_facade<pn_task_t, task> {
+/// A task for timer events.
+class task : public object<pn_task_t> {
   public:
-    /** Cancel the scheduled task. */
+    task(pn_task_t* t) : object<pn_task_t>(t) {}
+
+    /// Cancel the scheduled task.
     PN_CPP_EXTERN void cancel();
 };
 
 }
 
-#endif  /*!PROTON_CPP_TASK_H*/
+/// @endcond
+
+#endif // PROTON_CPP_TASK_H

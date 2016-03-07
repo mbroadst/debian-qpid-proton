@@ -22,9 +22,10 @@
 #include "options.hpp"
 
 #include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
+#include "proton/handler.hpp"
 #include "proton/connection.hpp"
 #include "proton/decoder.hpp"
+#include "proton/event.hpp"
 #include "proton/reactor.h"
 #include "proton/value.hpp"
 
@@ -35,8 +36,7 @@
 #include <stdio.h>
 
 
-
-class reactor_send : public proton::messaging_handler {
+class reactor_send : public proton::handler {
   private:
     proton::url url_;
     proton::message message_;
@@ -48,12 +48,12 @@ class reactor_send : public proton::messaging_handler {
     size_t received_bytes_;
     proton::amqp_binary received_content_;
     bool replying_;
-    proton::value id_value_;
-    pn_reactor_t *reactor_;
+    proton::message_id id_value_;
+    proton::reactor reactor_;
   public:
 
     reactor_send(const std::string &url, int c, int size, bool replying)
-        : messaging_handler(1024), // prefetch=1024
+        : handler(1024), // prefetch=1024
           url_(url), sent_(0), confirmed_(0), total_(c),
           received_(0), received_bytes_(0), replying_(replying) {
         if (replying_)
@@ -65,16 +65,16 @@ class reactor_send : public proton::messaging_handler {
 
     void on_start(proton::event &e) {
         e.container().open_sender(url_);
-        reactor_ = pn_cast(&e.container().reactor());
+        reactor_ = e.container().reactor();
     }
 
     void on_sendable(proton::event &e) {
-        proton::sender& sender = e.sender();
+        proton::sender sender = e.sender();
 
         while (sender.credit() && sent_ < total_) {
             id_value_ = sent_ + 1;
             message_.correlation_id(id_value_);
-            proton::amqp_timestamp reactor_now(pn_reactor_now(reactor_));
+            proton::amqp_timestamp reactor_now(reactor_.now());
             message_.creation_time(reactor_now);
             sender.send(message_);
             sent_++;
@@ -83,6 +83,7 @@ class reactor_send : public proton::messaging_handler {
 
     void on_accepted(proton::event &e) {
         confirmed_++;
+        e.delivery().settle();
         if (confirmed_ == total_) {
             std::cout << "all messages confirmed" << std::endl;
             if (!replying_)
@@ -92,11 +93,12 @@ class reactor_send : public proton::messaging_handler {
 
     void on_message(proton::event &e) {
         proton::message &msg = e.message();
-        msg.body().decoder() >> received_content_;
+        msg.body().decode() >> received_content_;
         received_bytes_ += received_content_.size();
         if (received_ < total_) {
             received_++;
         }
+        e.delivery().settle();
         if (received_ == total_) {
             e.receiver().close();
             e.connection().close();

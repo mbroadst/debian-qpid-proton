@@ -24,30 +24,36 @@
 
 #include "proton/export.hpp"
 #include "proton/types.hpp"
+#include "proton/comparable.hpp"
 
 namespace proton {
 
-/** Duration in milliseconds. */
-class duration : public comparable<duration>
-{
+/// A span of time in milliseconds.
+class duration : public comparable<duration> {
   public:
-    amqp_ulong milliseconds;
-    explicit duration(amqp_ulong ms = 0) : milliseconds(ms) {}
+    /// @cond INTERNAL
+    /// XXX public and mutable?
+    uint64_t milliseconds;
+    /// @endcond
 
-    bool operator<(duration d) { return milliseconds < d.milliseconds; }
-    bool operator==(duration d) { return milliseconds == d.milliseconds; }
+    /// Create a duration.
+    explicit duration(uint64_t ms = 0) : milliseconds(ms) {}
 
-    PN_CPP_EXTERN static const duration FOREVER; ///< Wait for ever
+    PN_CPP_EXTERN static const duration FOREVER;   ///< Wait for ever
     PN_CPP_EXTERN static const duration IMMEDIATE; ///< Don't wait at all
-    PN_CPP_EXTERN static const duration SECOND; ///< One second
-    PN_CPP_EXTERN static const duration MINUTE; ///< One minute
+    PN_CPP_EXTERN static const duration SECOND;    ///< One second
+    PN_CPP_EXTERN static const duration MINUTE;    ///< One minute
 };
+
+inline bool operator<(duration x, duration y) { return x.milliseconds < y.milliseconds; }
+inline bool operator==(duration x, duration y) { return x.milliseconds == y.milliseconds; }
 
 inline duration operator*(duration d, amqp_ulong n) { return duration(d.milliseconds*n); }
 inline duration operator*(amqp_ulong n, duration d) { return d * n; }
 
 inline amqp_timestamp operator+(amqp_timestamp ts, duration d) { return amqp_timestamp(ts.milliseconds+d.milliseconds); }
 inline amqp_timestamp operator+(duration d, amqp_timestamp ts) { return ts + d; }
+
 }
 
-#endif  /*!PROTON_CPP_DURATION_H*/
+#endif // PROTON_CPP_DURATION_H

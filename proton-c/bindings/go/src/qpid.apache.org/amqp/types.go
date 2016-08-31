@@ -19,7 +19,7 @@ under the License.
 
 package amqp
 
-// #include <proton/codec.h>
+//#include "codec_shim.h"
 import "C"
 
 import (
@@ -30,9 +30,7 @@ import (
 	"unsafe"
 )
 
-type Type C.pn_type_t
-
-func (t Type) String() string {
+func (t C.pn_type_t) String() string {
 	switch C.pn_type_t(t) {
 	case C.PN_NULL:
 		return "null"
@@ -84,10 +82,9 @@ func (t Type) String() string {
 		return "list"
 	case C.PN_MAP:
 		return "map"
+	case C.PN_INVALID:
+		return "no-data"
 	default:
-		if uint32(t) == uint32(C.PN_INVALID) {
-			return "no-data"
-		}
 		return fmt.Sprintf("unknown-type(%d)", t)
 	}
 }

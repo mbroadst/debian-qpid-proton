@@ -23,7 +23,7 @@ from . import common
 import random
 import string
 import subprocess
-
+import sys
 from proton import *
 from .common import Skipped, pump
 
@@ -31,6 +31,13 @@ from .common import Skipped, pump
 def _testpath(file):
     """ Set the full path to the certificate,keyfile, etc. for the test.
     """
+    if os.name=="nt":
+        if file.find("private-key")!=-1:
+            # The private key is not in a separate store
+            return None
+        # Substitute pkcs#12 equivalent for the CA/key store
+        if file.endswith(".pem"):
+            file = file[:-4] + ".p12"
     return os.path.join(os.path.dirname(__file__),
                         "ssl_db/%s" % file)
 
@@ -90,6 +97,8 @@ class SslTest(common.Test):
         self._pump(client, server)
 
     def test_defaults(self):
+        if os.name=="nt":
+            raise Skipped("Windows SChannel lacks anonymous cipher support.")
         """ By default, both the server and the client support anonymous
         ciphers - they should connect without need for a certificate.
         """
@@ -176,6 +185,66 @@ class SslTest(common.Test):
         server.connection.close()
         self._pump( client, server )
 
+    def test_certificate_fingerprint_and_subfields(self):
+        if os.name=="nt":
+            raise Skipped("Windows support for certificate fingerprint and subfield not implemented yet")
+
+        if "java" in sys.platform:
+            raise Skipped("Not yet implemented in Proton-J")
+
+        self.server_domain.set_credentials(self._testpath("server-certificate.pem"),
+                                           self._testpath("server-private-key.pem"),
+                                           "server-password")
+        self.server_domain.set_trusted_ca_db(self._testpath("ca-certificate.pem"))
+        self.server_domain.set_peer_authentication( SSLDomain.VERIFY_PEER,
+                                                    self._testpath("ca-certificate.pem") )
+        server = SslTest.SslTestConnection( self.server_domain, mode=Transport.SERVER )
+
+        # give the client a certificate, but let's not require server authentication
+        self.client_domain.set_credentials(self._testpath("client-certificate1.pem"),
+                                           self._testpath("client-private-key1.pem"),
+                                           "client-password")
+        self.client_domain.set_peer_authentication( SSLDomain.ANONYMOUS_PEER )
+        client = SslTest.SslTestConnection( self.client_domain )
+
+        client.connection.open()
+        server.connection.open()
+        self._pump( client, server )
+
+        # Test the subject subfields
+        self.assertEqual("Client", server.ssl.get_cert_organization())
+        self.assertEqual("Dev", server.ssl.get_cert_organization_unit())
+        self.assertEqual("ST", server.ssl.get_cert_state_or_province())
+        self.assertEqual("US", server.ssl.get_cert_country())
+        self.assertEqual("City", server.ssl.get_cert_locality_or_city())
+        self.assertEqual("O=Server,CN=A1.Good.Server.domain.com", client.ssl.get_cert_subject())
+        self.assertEqual("O=Client,CN=127.0.0.1,C=US,ST=ST,L=City,OU=Dev", server.ssl.get_cert_subject())
+
+        self.assertEqual("03c97341abafe5861d6969c66a190d2846d905d6", server.ssl.get_cert_fingerprint_sha1())
+        self.assertEqual("ad86cc76278e69aef3a5c0dda13fc49831622f92d1364ce1ed361ff842b0143a", server.ssl.get_cert_fingerprint_sha256())
+        self.assertEqual("9fb3340ecee4471534d60be025358cae33ef2cc9442ca8bb7703a68db68d9ffb7963678292996011fa55a9a2524b84a40a11a2778f25797e78e23cf05623218d",
+                         server.ssl.get_cert_fingerprint_sha512())
+        self.assertEqual("0d4faa84a0bb6846eaec6b7493916b30", server.ssl.get_cert_fingerprint_md5())
+
+        # Test the various fingerprint algorithms
+        self.assertEqual("f390ddb4dc8a90bcf3528774b622a7f87f7322b5", client.ssl.get_cert_fingerprint_sha1())
+        self.assertEqual("c116e902345c99bc01dda14b7a5f1b8ae6a451eddb23e5336c996ba4d12bc122", client.ssl.get_cert_fingerprint_sha256())
+        self.assertEqual("8941c8ce00824ab7196bb1952787c90ef7f9bd837cbb0bb4823f57fc89e80033c75adc98b78801928d0035bcd6db6ddc9ab6da026c6548a66ede5c4f43f7e166",
+                         client.ssl.get_cert_fingerprint_sha512())
+        self.assertEqual("d008bf05afbc983a3f98ae56e3eba643", client.ssl.get_cert_fingerprint_md5())
+
+        self.assertEqual(None, client.ssl.get_cert_fingerprint(21, SSL.SHA1)) # Should be at least 41
+        self.assertEqual(None, client.ssl.get_cert_fingerprint(50, SSL.SHA256)) # Should be at least 65
+        self.assertEqual(None, client.ssl.get_cert_fingerprint(128, SSL.SHA512)) # Should be at least 129
+        self.assertEqual(None, client.ssl.get_cert_fingerprint(10, SSL.MD5)) # Should be at least 33
+        self.assertEqual(None, client.ssl._get_cert_subject_unknown_subfield())
+
+        self.assertNotEqual(None, client.ssl.get_cert_fingerprint(50, SSL.SHA1)) # Should be at least 41
+        self.assertNotEqual(None, client.ssl.get_cert_fingerprint(70, SSL.SHA256)) # Should be at least 65
+        self.assertNotEqual(None, client.ssl.get_cert_fingerprint(130, SSL.SHA512)) # Should be at least 129
+        self.assertNotEqual(None, client.ssl.get_cert_fingerprint(35, SSL.MD5)) # Should be at least 33
+        self.assertEqual(None, client.ssl._get_cert_fingerprint_unknown_hash_alg())
+
     def test_client_authentication(self):
         """ Force the client to authenticate.
         """
@@ -199,6 +268,7 @@ class SslTest(common.Test):
         client.connection.open()
         server.connection.open()
         self._pump( client, server )
+
         assert client.ssl.protocol_name() is not None
         client.connection.close()
         server.connection.close()
@@ -429,6 +499,9 @@ class SslTest(common.Test):
     def test_session_resume(self):
         """ Test resume of client session.
         """
+        if os.name=="nt":
+            raise Skipped("Windows SChannel session resume not yet implemented.")
+
         self.server_domain.set_credentials(self._testpath("server-certificate.pem"),
                                            self._testpath("server-private-key.pem"),
                                            "server-password")
@@ -543,6 +616,8 @@ class SslTest(common.Test):
         """ Test authentication of the names held in the server's certificate
         against various configured hostnames.
         """
+        if os.name=="nt":
+            raise Skipped("PROTON-1057: disable temporarily on Windows.")
 
         # Check the CommonName matches (case insensitive).
         # Assumes certificate contains "CN=A1.Good.Server.domain.com"
@@ -733,9 +808,35 @@ class SslTest(common.Test):
         del server
         self.tearDown()
 
+    def test_server_hostname_authentication_2(self):
+        """Initially separated from test_server_hostname_authentication
+        above to force Windows checking and sidestep PROTON-1057 exclusion.
+        """
+
+        # Fail for a null peer name.
+        self.server_domain.set_credentials(self._testpath("server-wc-certificate.pem"),
+                                    self._testpath("server-wc-private-key.pem"),
+                                    "server-password")
+        self.client_domain.set_trusted_ca_db(self._testpath("ca-certificate.pem"))
+        self.client_domain.set_peer_authentication( SSLDomain.VERIFY_PEER_NAME )
+
+        server = SslTest.SslTestConnection( self.server_domain, mode=Transport.SERVER )
+        client = SslTest.SslTestConnection( self.client_domain )
+
+        # Next line results in an eventual pn_ssl_set_peer_hostname(client.ssl._ssl, None)
+        client.ssl.peer_hostname = None
+        self._do_handshake( client, server )
+        assert client.transport.closed
+        assert server.transport.closed
+        assert client.connection.state & Endpoint.REMOTE_UNINIT
+        assert server.connection.state & Endpoint.REMOTE_UNINIT
+        self.tearDown()
+
     def test_defaults_messenger_app(self):
         """ Test an SSL connection using the Messenger apps (no certificates)
         """
+        if os.name=="nt":
+            raise Skipped("Windows SChannel lacks anonymous cipher support.")
         port = common.free_tcp_ports()[0]
 
         receiver = common.MessengerReceiverC()
@@ -872,9 +973,10 @@ class MessengerSSLTests(common.Test):
         self.server.certificate = _testpath(cert)
         self.server.private_key = _testpath(key)
         self.server.password = password
+        port = common.free_tcp_ports()[0]
         try:
             self.server.start()
-            self.server.subscribe("amqps://~0.0.0.0:12345")
+            self.server.subscribe("amqps://~0.0.0.0:%s" % port)
             if exception is not None:
                 assert False, "expected failure did not occur"
         except MessengerException:
@@ -912,7 +1014,8 @@ class MessengerSSLTests(common.Test):
             self.server.private_key = _testpath("client-private-key.pem")
             self.server.password = "client-password"
         self.server.start()
-        self.server.subscribe("amqps://~0.0.0.0:12345")
+        port = common.free_tcp_ports()[0]
+        self.server.subscribe("amqps://~0.0.0.0:%s" % port)
         self.server.incoming_window = 10
 
         self.client.trusted_certificates = _testpath(trusted)
@@ -925,7 +1028,7 @@ class MessengerSSLTests(common.Test):
         self.server.recv()
 
         msg = Message()
-        msg.address = "amqps://127.0.0.1:12345"
+        msg.address = "amqps://127.0.0.1:%s" % port
         # make sure a large, uncompressible message body works!
         msg.body = "".join(random.choice(string.ascii_letters)
                            for x in range(10099))

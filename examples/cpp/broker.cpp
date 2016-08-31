@@ -21,40 +21,46 @@
 
 #include "options.hpp"
 
-#include "proton/acceptor.hpp"
-#include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
-#include "proton/url.hpp"
-#include "proton/value.hpp"
+#include <proton/connection.hpp>
+#include <proton/default_container.hpp>
+#include <proton/delivery.hpp>
+#include <proton/messaging_handler.hpp>
+#include <proton/message.hpp>
+#include <proton/receiver_options.hpp>
+#include <proton/sender.hpp>
+#include <proton/sender_options.hpp>
+#include <proton/source_options.hpp>
+#include <proton/target_options.hpp>
+#include <proton/transport.hpp>
+#include <proton/url.hpp>
 
-#include <iostream>
-#include <sstream>
 #include <deque>
-#include <map>
+#include <iostream>
 #include <list>
+#include <map>
 #include <string>
 
+#include "fake_cpp11.hpp"
+
+/// A simple implementation of a queue.
 class queue {
   public:
-    bool dynamic;
-    typedef std::deque<proton::message> message_queue;
-    typedef std::list<proton::counted_ptr<proton::sender> > sender_list;
-    message_queue messages;
-    sender_list consumers;
+    queue(const std::string &name, bool dynamic = false) : name_(name), dynamic_(dynamic) {}
 
-    queue(bool dyn = false) : dynamic(dyn) {}
+    std::string name() const { return name_; }
 
-    void subscribe(proton::sender &c) {
-        consumers.push_back(c.ptr());
+    void subscribe(proton::sender s) {
+        consumers_.push_back(s);
     }
 
-    bool unsubscribe(proton::sender &c) {
-        consumers.remove(c.ptr());
-        return (consumers.size() == 0 && (dynamic || messages.size() == 0));
+    // Return true if queue can be deleted.
+    bool unsubscribe(proton::sender s) {
+        consumers_.remove(s);
+        return (consumers_.size() == 0 && (dynamic_ || messages_.size() == 0));
     }
 
     void publish(const proton::message &m) {
-        messages.push_back(m);
+        messages_.push_back(m);
         dispatch(0);
     }
 
@@ -62,151 +68,215 @@ class queue {
         while (deliver_to(s)) {}
     }
 
-    bool deliver_to(proton::sender *consumer) {
-        // deliver to single consumer if supplied, else all consumers
-        int count = consumer ? 1 : consumers.size();
-        if (!count) return false;
-        bool result = false;
-        sender_list::iterator it = consumers.begin();
-        if (!consumer && count)
-            consumer = it->get();
+    bool deliver_to(proton::sender *s) {
+        // Deliver to single sender if supplied, else all consumers
+        int count = s ? 1 : consumers_.size();
 
-        while (messages.size()) {
-            if (consumer->credit()) {
-                consumer->send(messages.front());
-                messages.pop_front();
+        if (!count) return false;
+
+        bool result = false;
+        sender_list::iterator it = consumers_.begin();
+
+        if (!s && count) {
+            s = &*it;
+        }
+
+        while (messages_.size()) {
+            if (s->credit()) {
+                const proton::message& m = messages_.front();
+
+                s->send(m);
+                messages_.pop_front();
                 result = true;
             }
-            if (--count)
+
+            if (--count) {
                 it++;
-            else
+            } else {
                 return result;
+            }
         }
+
         return false;
     }
+
+  private:
+    typedef std::deque<proton::message> message_queue;
+    typedef std::list<proton::sender> sender_list;
+
+    std::string name_;
+    bool dynamic_;
+    message_queue messages_;
+    sender_list consumers_;
 };
 
-class broker : public proton::messaging_handler {
-  private:
-    typedef std::map<std::string, queue *> queue_map;
-    proton::url url;
-    queue_map queues;
-    uint64_t queue_count;       // Use to generate unique queue IDs.
-
+/// A collection of queues and queue factory, used by a broker.
+class queues {
   public:
+    queues() : next_id_(0) {}
+    virtual ~queues() {}
 
-    broker(const proton::url &u) : url(u), queue_count(0) {}
+    // Get or create a queue.
+    virtual queue &get(const std::string &address) {
+        if (address.empty()) {
+            throw std::runtime_error("empty queue name");
+        }
 
-    void on_start(proton::event &e) {
-        e.container().listen(url);
-        std::cout << "broker listening on " << url << std::endl;
+        queue*& q = queues_[address];
+
+        if (!q) q = new queue(address);
+
+        return *q;
     }
 
-    class queue &get_queue(std::string &address) {
-        queue_map::iterator it = queues.find(address);
-        if (it == queues.end()) {
-            queues[address] = new queue();
-            return *queues[address];
-        }
-        else {
-            return *it->second;
-        }
-    }
-
-    std::string queue_name() {
+    // Create a dynamic queue with a unique name.
+    virtual queue &dynamic() {
         std::ostringstream os;
-        os << "q" << queue_count++;
-        return os.str();
+        os << "q" << next_id_++;
+        queue *q = queues_[os.str()] = new queue(os.str(), true);
+
+        return *q;
     }
 
-    void on_link_opening(proton::event &e) {
-        proton::link& lnk = e.link();
-        if (lnk.sender()) {
-            proton::terminus &remote_source(lnk.remote_source());
-            if (remote_source.dynamic()) {
-                std::string address = queue_name();
-                lnk.source().address(address);
-                queue *q = new queue(true);
-                queues[address] = q;
-                q->subscribe(*lnk.sender());
-                std::cout << "broker dynamic outgoing link from " << address << std::endl;
-            }
-            else {
-                std::string address = remote_source.address();
-                if (!address.empty()) {
-                    lnk.source().address(address);
-                    get_queue(address).subscribe(*lnk.sender());
-                    std::cout << "broker outgoing link from " << address << std::endl;
-                }
-            }
+    // Delete the named queue
+    virtual void erase(std::string &name) {
+        delete queues_[name];
+        queues_.erase(name);
+    }
+
+  protected:
+    typedef std::map<std::string, queue *> queue_map;
+    queue_map queues_;
+    uint64_t next_id_; // Use to generate unique queue IDs.
+};
+
+// A handler to implement broker logic
+class broker_handler : public proton::messaging_handler {
+  public:
+    broker_handler(queues& qs) : queues_(qs) {}
+
+    void on_sender_open(proton::sender &sender) OVERRIDE {
+        proton::source src(sender.source());
+        queue *q;
+        if (src.dynamic()) {
+            q = &queues_.dynamic();
+        } else if (!src.address().empty()) {
+            q = &queues_.get(src.address());
+        } else {
+            sender.close(proton::error_condition("No queue address supplied"));
+            return;
         }
-        else {
-            std::string address = lnk.remote_target().address();
-            if (!address.empty())
-                lnk.target().address(address);
+        sender.open(proton::sender_options().source(proton::source_options().address(q->name())));
+        q->subscribe(sender);
+        std::cout << "broker outgoing link from " << q->name() << std::endl;
+    }
+
+    void on_receiver_open(proton::receiver &receiver) OVERRIDE {
+        std::string address = receiver.target().address();
+        if (!address.empty()) {
+            receiver.open(proton::receiver_options().target(proton::target_options().address(address)));
             std::cout << "broker incoming link to " << address << std::endl;
+        } else {
+            receiver.close(proton::error_condition("No queue address supplied"));
         }
     }
 
-    void unsubscribe (proton::sender &lnk) {
+    void unsubscribe(proton::sender lnk) {
         std::string address = lnk.source().address();
-        queue_map::iterator it = queues.find(address);
-        if (it != queues.end() && it->second->unsubscribe(lnk)) {
-            delete it->second;
-            queues.erase(it);
+
+        if (queues_.get(address).unsubscribe(lnk)) {
+            queues_.erase(address);
         }
     }
 
-    void on_link_closing(proton::event &e) {
-        proton::link &lnk = e.link();
-        if (lnk.sender()) {
-            unsubscribe(*lnk.sender());
+    void on_sender_close(proton::sender &sender) OVERRIDE {
+        unsubscribe(sender);
+    }
+
+    void on_connection_close(proton::connection &c) OVERRIDE {
+        remove_stale_consumers(c);
+    }
+
+    void on_transport_close(proton::transport &t) OVERRIDE {
+        remove_stale_consumers(t.connection());
+    }
+
+    void on_transport_error(proton::transport &t) OVERRIDE {
+        std::cout << "broker client disconnect: " << t.error().what() << std::endl;
+    }
+
+    void on_error(const proton::error_condition &c) OVERRIDE {
+        std::cerr << "broker error: " << c.what() << std::endl;
+    }
+
+    void remove_stale_consumers(proton::connection connection) {
+        proton::sender_range r = connection.senders();
+        for (proton::sender_iterator i = r.begin(); i != r.end(); ++i) {
+            if (i->active())
+                unsubscribe(*i);
         }
     }
 
-    void on_connection_closing(proton::event &e) {
-        remove_stale_consumers(e.connection());
+    void on_sendable(proton::sender &s) OVERRIDE {
+        std::string address = s.source().address();
+
+        queues_.get(address).dispatch(&s);
     }
 
-    void on_disconnected(proton::event &e) {
-        remove_stale_consumers(e.connection());
+    void on_message(proton::delivery &d, proton::message &m) OVERRIDE {
+        std::string address = d.receiver().target().address();
+        queues_.get(address).publish(m);
     }
 
-    void remove_stale_consumers(proton::connection &connection) {
-        proton::link_range r = connection.find_links(proton::endpoint::REMOTE_ACTIVE);
-        for (proton::link_iterator l = r.begin(); l != r.end(); ++l) {
-            if (l->sender()) {
-                unsubscribe(*l->sender());
-            }
+  protected:
+    queues& queues_;
+};
+
+
+// The broker
+class broker {
+  public:
+    broker(const std::string& url) : handler_(url, queues_) {}
+
+    proton::messaging_handler& handler() { return handler_; }
+
+  private:
+    class my_handler : public broker_handler {
+      public:
+        my_handler(const std::string& u, queues& qs) : broker_handler(qs), url_(u) {}
+
+        void on_container_start(proton::container &c) OVERRIDE {
+            c.listen(url_);
+            std::cout << "broker listening on " << url_ << std::endl;
         }
-    }
 
-    void on_sendable(proton::event &e) {
-        proton::link& lnk = e.link();
-        std::string addr = lnk.source().address();
-        get_queue(addr).dispatch(lnk.sender());
-    }
+      private:
+        const std::string& url_;
+    };
 
-    void on_message(proton::event &e) {
-        std::string addr = e.link().target().address();
-        get_queue(addr).publish(e.message());
-    }
+  private:
+    queues queues_;
+    my_handler handler_;
 };
 
 int main(int argc, char **argv) {
-    // Command line options
-    proton::url url("0.0.0.0");
-    options opts(argc, argv);
+    std::string url("0.0.0.0");
+    example::options opts(argc, argv);
+
     opts.add_value(url, 'a', "address", "listen on URL", "URL");
+
     try {
         opts.parse();
-        broker broker(url);
-        proton::container(broker).run();
+
+        broker b(url);
+        proton::default_container(b.handler()).run();
+
         return 0;
-    } catch (const bad_option& e) {
+    } catch (const example::bad_option& e) {
         std::cout << opts << std::endl << e.what() << std::endl;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

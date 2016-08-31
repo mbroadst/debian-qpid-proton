@@ -17,8 +17,9 @@
  * under the License.
  */
 
-#include "proton/decoder.hpp"
-#include "proton/encoder.hpp"
+#include "proton/codec/decoder.hpp"
+#include "proton/codec/encoder.hpp"
+#include "proton/error.hpp"
 #include "proton/value.hpp"
 #include "test_bits.hpp"
 #include <string>
@@ -27,8 +28,17 @@
 #include <streambuf>
 #include <iosfwd>
 
+namespace {
+
 using namespace std;
 using namespace proton;
+
+using proton::codec::encoder;
+using proton::codec::decoder;
+
+using proton::internal::data;
+
+using test::str;
 
 std::string tests_dir;
 
@@ -39,43 +49,36 @@ string read(string filename) {
     return string(istreambuf_iterator<char>(ifs), istreambuf_iterator<char>());
 }
 
-template <class T> T get(decoder& d) { return d.get_as<T, type_id_of<T>::value>(); }
-
-template <class T> std::string str(const T& value) {
-    ostringstream oss;
-    oss << value;
-    return oss.str();
-}
-
 // Test data ostream operator
 void test_data_ostream() {
-    value dv;
-    dv.decoder().decode(read("primitives"));
-    ASSERT_EQUAL("true, false, 42, 42, -42, 12345, -12345, 12345, -12345, 0.125, 0.125", str(dv));
+    data dt(data::create());
+    decoder d(dt);
+    d.decode(read("primitives"));
+    ASSERT_EQUAL("true, false, 42, 42, -42, 12345, -12345, 12345, -12345, 0.125, 0.125", str(dt));
 }
 
 // Test extracting to exact AMQP types works corectly, extrating to invalid types fails.
 void test_decoder_primitves_exact() {
     value dv;
-    dv.decoder().decode(read("primitives"));
-    decoder& d(dv.decoder());
+    decoder d(dv);
+    d.decode(read("primitives"));
     ASSERT(d.more());
-    try { get< ::int8_t>(d); FAIL("got bool as byte"); } catch(decode_error){}
+    try { get< ::int8_t>(d); FAIL("got bool as byte"); } catch(conversion_error){}
     ASSERT_EQUAL(true, get<bool>(d));
     ASSERT_EQUAL(false, get<bool>(d));
-    try { get< ::int8_t>(d); FAIL("got ubyte as byte"); } catch(decode_error){}
+    try { get< ::int8_t>(d); FAIL("got ubyte as byte"); } catch(conversion_error){}
     ASSERT_EQUAL(42, get< ::uint8_t>(d));
-    try { get< ::int32_t>(d); FAIL("got uint as ushort"); } catch(decode_error){}
+    try { get< ::int32_t>(d); FAIL("got uint as ushort"); } catch(conversion_error){}
     ASSERT_EQUAL(42, get< ::uint16_t>(d));
-    try { get< ::uint16_t>(d); FAIL("got short as ushort"); } catch(decode_error){}
+    try { get< ::uint16_t>(d); FAIL("got short as ushort"); } catch(conversion_error){}
     ASSERT_EQUAL(-42, get< ::int16_t>(d));
-    ASSERT_EQUAL(12345, get< ::uint32_t>(d));
+    ASSERT_EQUAL(12345u, get< ::uint32_t>(d));
     ASSERT_EQUAL(-12345, get< ::int32_t>(d));
-    ASSERT_EQUAL(12345, get< ::uint64_t>(d));
+    ASSERT_EQUAL(12345u, get< ::uint64_t>(d));
     ASSERT_EQUAL(-12345, get< ::int64_t>(d));
-    try { get<double>(d); FAIL("got float as double"); } catch(decode_error){}
-    ASSERT_EQUAL(0.125, get<float>(d));
-    try { get<float>(d); FAIL("got double as float"); } catch(decode_error){}
+    try { get<double>(d); FAIL("got float as double"); } catch(conversion_error){}
+    ASSERT_EQUAL(0.125f, get<float>(d));
+    try { get<float>(d); FAIL("got double as float"); } catch(conversion_error){}
     ASSERT_EQUAL(0.125, get<double>(d));
     ASSERT(!d.more());
 }
@@ -83,41 +86,30 @@ void test_decoder_primitves_exact() {
 // Test inserting primitive sand encoding as AMQP.
 void test_encoder_primitives() {
     value dv;
-    encoder& e = dv.encoder();
+    encoder e(dv);
     e << true << false;
     e << ::uint8_t(42);
     e << ::uint16_t(42) << ::int16_t(-42);
     e << ::uint32_t(12345) << ::int32_t(-12345);
     e << ::uint64_t(12345) << ::int64_t(-12345);
     e << float(0.125) << double(0.125);
-    ASSERT_EQUAL("true, false, 42, 42, -42, 12345, -12345, 12345, -12345, 0.125, 0.125", str(e.data()));
+    ASSERT_EQUAL("true, false, 42, 42, -42, 12345, -12345, 12345, -12345, 0.125, 0.125", str(e));
     std::string data = e.encode();
     ASSERT_EQUAL(read("primitives"), data);
 }
 
-// Test type conversions.
-void test_value_conversions() {
-    value v;
-    ASSERT_EQUAL(true, bool(v = true));
-    ASSERT_EQUAL(2, int(v=amqp_byte(2)));
-    ASSERT_EQUAL(3, long(v=amqp_byte(3)));
-    ASSERT_EQUAL(3, long(v=amqp_byte(3)));
-    ASSERT_EQUAL(1.0, double(v=amqp_float(1.0)));
-    ASSERT_EQUAL(1.0, float(v=amqp_double(1.0)));
-    try { (void)bool(v = amqp_byte(1)); FAIL("got byte as bool"); } catch (decode_error) {}
-    try { (void)float(v = true); FAIL("got bool as float"); } catch (decode_error) {}
 }
-
-// TODO aconway 2015-06-11: interop test is not complete.
 
 int main(int argc, char** argv) {
     int failed = 0;
-    if (argc != 2) FAIL("Usage: " << argv[0] << " tests-dir");
+    if (argc != 2) {
+        cerr << "Usage: " << argv[0] << " tests-dir" << endl;
+        return 1;
+    }
     tests_dir = argv[1];
 
-    failed += RUN_TEST(test_data_ostream);
-    failed += RUN_TEST(test_decoder_primitves_exact);
-    failed += RUN_TEST(test_encoder_primitives);
-    failed += RUN_TEST(test_value_conversions);
+    RUN_TEST(failed, test_data_ostream());
+    RUN_TEST(failed, test_decoder_primitves_exact());
+    RUN_TEST(failed, test_encoder_primitives());
     return failed;
 }

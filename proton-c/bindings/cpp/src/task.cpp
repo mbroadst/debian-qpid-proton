@@ -20,10 +20,10 @@
  */
 
 #include "proton/task.hpp"
-#include "proton/reactor.h"
+#include <proton/reactor.h>
 
 namespace proton {
 
-void task::cancel() { pn_task_cancel(pn_cast(this)); }
+void task::cancel() { pn_task_cancel(pn_object()); }
 
 }

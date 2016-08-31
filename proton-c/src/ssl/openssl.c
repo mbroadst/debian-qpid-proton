@@ -113,6 +113,7 @@ struct pni_ssl_t {
   bool write_blocked;   // SSL blocked until data is written to network
 
   char *subject;
+  X509 *peer_certificate;
 };
 
 static inline pn_transport_t *get_transport_internal(pn_ssl_t *ssl)
@@ -152,6 +153,7 @@ static void release_ssl_socket( pni_ssl_t * );
 static pn_ssl_session_t *ssn_cache_find( pn_ssl_domain_t *, const char * );
 static void ssl_session_free( pn_ssl_session_t *);
 static size_t buffered_output( pn_transport_t *transport );
+static X509 *get_peer_certificate(pni_ssl_t *ssl);
 
 static void ssl_vlog(pn_transport_t *transport, const char *fmt, va_list ap)
 {
@@ -798,6 +800,7 @@ void pn_ssl_free(pn_transport_t *transport)
   if (ssl->inbuf) free((void *)ssl->inbuf);
   if (ssl->outbuf) free((void *)ssl->outbuf);
   if (ssl->subject) free(ssl->subject);
+  if (ssl->peer_certificate) X509_free(ssl->peer_certificate);
   free(ssl);
 }
 
@@ -1203,6 +1206,7 @@ static int init_ssl_socket(pn_transport_t* transport, pni_ssl_t *ssl)
     ssl_log( transport, "Client SSL socket created." );
   }
   ssl->subject = NULL;
+  ssl->peer_certificate = NULL;
   return 0;
 }
 
@@ -1273,12 +1277,22 @@ int pn_ssl_get_peer_hostname(pn_ssl_t *ssl0, char *hostname, size_t *bufsize)
   return 0;
 }
 
+static X509 *get_peer_certificate(pni_ssl_t *ssl)
+{
+  // Cache for multiple use and final X509_free
+  if (!ssl->peer_certificate && ssl->ssl) {
+    ssl->peer_certificate = SSL_get_peer_certificate(ssl->ssl);
+    // May still be NULL depending on timing or type of SSL connection
+  }
+  return ssl->peer_certificate;
+}
+
 const char* pn_ssl_get_remote_subject(pn_ssl_t *ssl0)
 {
   pni_ssl_t *ssl = get_ssl_internal(ssl0);
   if (!ssl || !ssl->ssl) return NULL;
   if (!ssl->subject) {
-    X509 *cert = SSL_get_peer_certificate(ssl->ssl);
+    X509 *cert = get_peer_certificate(ssl);
     if (!cert) return NULL;
     X509_NAME *subject = X509_get_subject_name(cert);
     if (!subject) return NULL;
@@ -1292,6 +1306,128 @@ const char* pn_ssl_get_remote_subject(pn_ssl_t *ssl0)
     BIO_free(out);
   }
   return ssl->subject;
+}
+
+int pn_ssl_get_cert_fingerprint(pn_ssl_t *ssl0, char *fingerprint, size_t fingerprint_length, pn_ssl_hash_alg hash_alg)
+{
+    const char *digest_name = NULL;
+    size_t min_required_length;
+
+    // old versions of python expect fingerprint to contain a valid string on
+    // return from this function
+    fingerprint[0] = 0;
+
+    // Assign the correct digest_name value based on the enum values.
+    switch (hash_alg) {
+        case PN_SSL_SHA1 :
+            min_required_length = 41; // 40 hex characters + 1 '\0' character
+            digest_name = "sha1";
+            break;
+        case PN_SSL_SHA256 :
+            min_required_length = 65; // 64 hex characters + 1 '\0' character
+            digest_name = "sha256";
+            break;
+        case PN_SSL_SHA512 :
+            min_required_length = 129; // 128 hex characters + 1 '\0' character
+            digest_name = "sha512";
+            break;
+        case PN_SSL_MD5 :
+            min_required_length = 33; // 32 hex characters + 1 '\0' character
+            digest_name = "md5";
+            break;
+        default:
+            ssl_log_error("Unknown or unhandled hash algorithm %i \n", hash_alg);
+            return PN_ERR;
+
+    }
+
+    if(fingerprint_length < min_required_length) {
+        ssl_log_error("Insufficient fingerprint_length %i. fingerprint_length must be %i or above for %s digest\n",
+            fingerprint_length, min_required_length, digest_name);
+        return PN_ERR;
+    }
+
+    const EVP_MD  *digest = EVP_get_digestbyname(digest_name);
+
+    pni_ssl_t *ssl = get_ssl_internal(ssl0);
+
+    X509 *cert = get_peer_certificate(ssl);
+
+    if(cert) {
+        unsigned int len;
+
+        unsigned char bytes[64]; // sha512 uses 64 octets, we will use that as the maximum.
+
+        if (X509_digest(cert, digest, bytes, &len) != 1) {
+            ssl_log_error("Failed to extract X509 digest\n");
+            return PN_ERR;
+       }
+
+        char *cursor = fingerprint;
+
+        for (size_t i=0; i<len ; i++) {
+            cursor +=  snprintf((char *)cursor, fingerprint_length, "%02x", bytes[i]);
+            fingerprint_length = fingerprint_length - 2;
+        }
+
+        return PN_OK;
+    }
+    else {
+        ssl_log_error("No certificate is available yet \n");
+        return PN_ERR;
+    }
+
+    return 0;
+}
+
+
+const char* pn_ssl_get_remote_subject_subfield(pn_ssl_t *ssl0, pn_ssl_cert_subject_subfield field)
+{
+    int openssl_field = 0;
+
+    // Assign openssl internal representations of field values to openssl_field
+    switch (field) {
+        case PN_SSL_CERT_SUBJECT_COUNTRY_NAME :
+            openssl_field = NID_countryName;
+            break;
+        case PN_SSL_CERT_SUBJECT_STATE_OR_PROVINCE :
+            openssl_field = NID_stateOrProvinceName;
+            break;
+        case PN_SSL_CERT_SUBJECT_CITY_OR_LOCALITY :
+            openssl_field = NID_localityName;
+            break;
+        case PN_SSL_CERT_SUBJECT_ORGANIZATION_NAME :
+            openssl_field = NID_organizationName;
+            break;
+        case PN_SSL_CERT_SUBJECT_ORGANIZATION_UNIT :
+            openssl_field = NID_organizationalUnitName;
+            break;
+        case PN_SSL_CERT_SUBJECT_COMMON_NAME :
+            openssl_field = NID_commonName;
+            break;
+        default:
+            ssl_log_error("Unknown or unhandled certificate subject subfield %i \n", field);
+            return NULL;
+    }
+
+    pni_ssl_t *ssl = get_ssl_internal(ssl0);
+    X509 *cert = get_peer_certificate(ssl);
+
+    X509_NAME *subject_name = X509_get_subject_name(cert);
+
+    // TODO (gmurthy) - A server side cert subject field can have more than one common name like this - Subject: CN=www.domain1.com, CN=www.domain2.com, see https://bugzilla.mozilla.org/show_bug.cgi?id=380656
+    // For now, we will only return the first common name if there is more than one common name in the cert
+    int index = X509_NAME_get_index_by_NID(subject_name, openssl_field, -1);
+
+    if (index > -1) {
+        X509_NAME_ENTRY *ne = X509_NAME_get_entry(subject_name, index);
+        if(ne) {
+            ASN1_STRING *name_asn1 = X509_NAME_ENTRY_get_data(ne);
+            return (char *) name_asn1->data;
+        }
+    }
+
+    return NULL;
 }
 
 static ssize_t process_input_done(pn_transport_t *transport, unsigned int layer, const char *input_data, size_t len)

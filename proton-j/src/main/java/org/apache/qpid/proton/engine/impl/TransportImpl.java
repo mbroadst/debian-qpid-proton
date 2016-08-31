@@ -116,6 +116,7 @@ public class TransportImpl extends EndpointImpl
 
     private boolean _init;
     private boolean _processingStarted;
+    private boolean _emitFlowEventOnSend = true;
 
     private FrameHandler _frameHandler = this;
     private boolean _head_closed = false;
@@ -139,7 +140,7 @@ public class TransportImpl extends EndpointImpl
 
     /**
      * @deprecated This constructor's visibility will be reduced to the default scope in a future release.
-     * Client code outside this module should use a {@link EngineFactory} instead
+     * Client code outside this module should use {@link org.apache.qpid.proton.engine.Transport.Factory#create()} instead
      */
     @Deprecated public TransportImpl()
     {
@@ -207,21 +208,19 @@ public class TransportImpl extends EndpointImpl
     }
 
     @Override
-    public void setChannelMax(int n)
+    public void setChannelMax(int channelMax)
     {
         if(_isOpenSent)
         {
           throw new IllegalArgumentException("Cannot change channel max after open frame has been sent");
         }
 
-        if(n < CHANNEL_MAX_LIMIT)
+        if(channelMax < 0 || channelMax >= (1<<16))
         {
-            _channelMax = n;
+            throw new NumberFormatException("Value \""+channelMax+"\" lies outside the range [0-" + (1<<16) +").");
         }
-        else
-        {
-            _channelMax = CHANNEL_MAX_LIMIT;
-        }
+
+        _channelMax = channelMax;
     }
 
     @Override
@@ -288,7 +287,7 @@ public class TransportImpl extends EndpointImpl
 
     /**
      * This method is public as it is used by Python layer.
-     * @see Transport#input(byte[], int, int)
+     * @see org.apache.qpid.proton.engine.Transport#input(byte[], int, int)
      */
     public TransportResult oldApiCheckStateBeforeInput(int inputLength)
     {
@@ -361,8 +360,8 @@ public class TransportImpl extends EndpointImpl
     /**
      * {@inheritDoc}
      *
-     * <p>Note that sslDomain must implement {@link ProtonSslEngineProvider}. This is not possible
-     * enforce at the API level because {@link ProtonSslEngineProvider} is not part of the
+     * <p>Note that sslDomain must implement {@link org.apache.qpid.proton.engine.impl.ssl.ProtonSslEngineProvider}.
+     * This is not possible enforce at the API level because {@link org.apache.qpid.proton.engine.impl.ssl.ProtonSslEngineProvider} is not part of the
      * public Proton API.</p>
      */
     @Override
@@ -387,7 +386,7 @@ public class TransportImpl extends EndpointImpl
 
     private void processDetach()
     {
-        if(_connectionEndpoint != null)
+        if(_connectionEndpoint != null && _isOpenSent)
         {
             EndpointImpl endpoint = _connectionEndpoint.getTransportHead();
             while(endpoint != null)
@@ -460,7 +459,7 @@ public class TransportImpl extends EndpointImpl
 
     private void processSenderFlow()
     {
-        if(_connectionEndpoint != null)
+        if(_connectionEndpoint != null && _isOpenSent && !_isCloseSent)
         {
             EndpointImpl endpoint = _connectionEndpoint.getTransportHead();
             while(endpoint != null)
@@ -491,7 +490,7 @@ public class TransportImpl extends EndpointImpl
 
     private void processTransportWork()
     {
-        if(_connectionEndpoint != null)
+        if(_connectionEndpoint != null && _isOpenSent && !_isCloseSent)
         {
             DeliveryImpl delivery = _connectionEndpoint.getTransportWorkHead();
             while(delivery != null)
@@ -567,7 +566,12 @@ public class TransportImpl extends EndpointImpl
                 transfer.setMore(true);
             }
 
-            transfer.setMessageFormat(UnsignedInteger.ZERO);
+            int messageFormat = delivery.getMessageFormat();
+            if(messageFormat == DeliveryImpl.DEFAULT_MESSAGE_FORMAT) {
+                transfer.setMessageFormat(UnsignedInteger.ZERO);
+            } else {
+                transfer.setMessageFormat(UnsignedInteger.valueOf(messageFormat));
+            }
 
             ByteBuffer payload = delivery.getData() ==  null ? null :
                 ByteBuffer.wrap(delivery.getData(), delivery.getDataOffset(),
@@ -608,7 +612,7 @@ public class TransportImpl extends EndpointImpl
                 tpLink.setInProgressDelivery(delivery);
             }
 
-            if (snd.getLocalState() != EndpointState.CLOSED) {
+            if (_emitFlowEventOnSend && snd.getLocalState() != EndpointState.CLOSED) {
                 getConnectionImpl().put(Event.Type.LINK_FLOW, snd);
             }
         }
@@ -670,7 +674,7 @@ public class TransportImpl extends EndpointImpl
 
     private void processReceiverFlow()
     {
-        if(_connectionEndpoint != null)
+        if(_connectionEndpoint != null && _isOpenSent && !_isCloseSent)
         {
             EndpointImpl endpoint = _connectionEndpoint.getTransportHead();
             while(endpoint != null)
@@ -681,7 +685,7 @@ public class TransportImpl extends EndpointImpl
                     TransportLink<?> transportLink = getTransportState(receiver);
                     TransportSession transportSession = getTransportState(receiver.getSession());
 
-                    if(receiver.getLocalState() == EndpointState.ACTIVE)
+                    if(receiver.getLocalState() == EndpointState.ACTIVE && transportSession.isLocalChannelSet())
                     {
                         int credits = receiver.clearUnsentCredits();
                         if(credits != 0 || receiver.getDrain() ||
@@ -703,7 +707,7 @@ public class TransportImpl extends EndpointImpl
                     SessionImpl session = (SessionImpl) endpoint;
                     TransportSession transportSession = getTransportState(session);
 
-                    if(session.getLocalState() == EndpointState.ACTIVE)
+                    if(session.getLocalState() == EndpointState.ACTIVE && transportSession.isLocalChannelSet())
                     {
                         if(transportSession.getIncomingWindowSize().equals(UnsignedInteger.ZERO))
                         {
@@ -718,7 +722,7 @@ public class TransportImpl extends EndpointImpl
 
     private void processAttach()
     {
-        if(_connectionEndpoint != null)
+        if(_connectionEndpoint != null && _isOpenSent && !_isCloseSent)
         {
             EndpointImpl endpoint = _connectionEndpoint.getTransportHead();
 
@@ -729,15 +733,15 @@ public class TransportImpl extends EndpointImpl
 
                     LinkImpl link = (LinkImpl) endpoint;
                     TransportLink<?> transportLink = getTransportState(link);
-                    if(link.getLocalState() != EndpointState.UNINITIALIZED && !transportLink.attachSent())
+                    SessionImpl session = link.getSession();
+                    TransportSession transportSession = getTransportState(session);
+                    if(link.getLocalState() != EndpointState.UNINITIALIZED && !transportLink.attachSent() && transportSession.isLocalChannelSet())
                     {
 
                         if( (link.getRemoteState() == EndpointState.ACTIVE
                             && !transportLink.isLocalHandleSet()) || link.getRemoteState() == EndpointState.UNINITIALIZED)
                         {
 
-                            SessionImpl session = link.getSession();
-                            TransportSession transportSession = getTransportState(session);
                             UnsignedInteger localHandle = transportSession.allocateLocalHandle(transportLink);
 
                             if(link.getRemoteState() == EndpointState.UNINITIALIZED)
@@ -769,6 +773,11 @@ public class TransportImpl extends EndpointImpl
                                 attach.setTarget(link.getTarget());
                             }
 
+                            if(link.getProperties() != null)
+                            {
+                                attach.setProperties(link.getProperties());
+                            }
+
                             attach.setRole(endpoint instanceof ReceiverImpl ? Role.RECEIVER : Role.SENDER);
 
                             if(link instanceof SenderImpl)
@@ -797,10 +806,10 @@ public class TransportImpl extends EndpointImpl
 
     private void processOpen()
     {
-        if ((_condition != null ||
+        if (!_isOpenSent && (_condition != null ||
              (_connectionEndpoint != null &&
-              _connectionEndpoint.getLocalState() != EndpointState.UNINITIALIZED)) &&
-            !_isOpenSent) {
+              _connectionEndpoint.getLocalState() != EndpointState.UNINITIALIZED)))
+        {
             Open open = new Open();
             if (_connectionEndpoint != null) {
                 String cid = _connectionEndpoint.getLocalContainerId();
@@ -833,7 +842,7 @@ public class TransportImpl extends EndpointImpl
 
     private void processBegin()
     {
-        if(_connectionEndpoint != null)
+        if(_connectionEndpoint != null && _isOpenSent && !_isCloseSent)
         {
             EndpointImpl endpoint = _connectionEndpoint.getTransportHead();
             while(endpoint != null)
@@ -914,7 +923,7 @@ public class TransportImpl extends EndpointImpl
 
     private void processEnd()
     {
-        if(_connectionEndpoint != null)
+        if(_connectionEndpoint != null && _isOpenSent)
         {
             EndpointImpl endpoint = _connectionEndpoint.getTransportHead();
             while(endpoint != null)
@@ -1085,9 +1094,9 @@ public class TransportImpl extends EndpointImpl
             }
             else
             {
-                // TODO check null
                 transportSession = _localSessions.get(begin.getRemoteChannel().intValue());
                 if (transportSession == null) {
+                    // TODO handle failure rather than just throwing a nicer NPE
                     throw new NullPointerException("uncorrelated channel: " + begin.getRemoteChannel());
                 }
                 session = transportSession.getSession();
@@ -1167,6 +1176,8 @@ public class TransportImpl extends EndpointImpl
 
                 link.setRemoteReceiverSettleMode(attach.getRcvSettleMode());
                 link.setRemoteSenderSettleMode(attach.getSndSettleMode());
+
+                link.setRemoteProperties(attach.getProperties());
 
                 transportLink.setName(attach.getName());
                 transportLink.setRemoteHandle(handle);
@@ -1646,5 +1657,17 @@ public class TransportImpl extends EndpointImpl
 
     public Reactor getReactor() {
         return _reactor;
+    }
+
+    @Override
+    public void setEmitFlowEventOnSend(boolean emitFlowEventOnSend)
+    {
+        _emitFlowEventOnSend = emitFlowEventOnSend;
+    }
+
+    @Override
+    public boolean isEmitFlowEventOnSend()
+    {
+        return _emitFlowEventOnSend;
     }
 }

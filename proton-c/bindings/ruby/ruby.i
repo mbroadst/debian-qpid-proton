@@ -175,6 +175,9 @@ Keep preprocessor directives and macro expansions in the normal header section.
     case PN_STRING:
       $result = rb_str_new($1.u.as_bytes.start, $1.u.as_bytes.size);
       break;
+
+    default:
+       break;
     }
 }
 
@@ -478,14 +481,16 @@ typedef struct Pn_rbkey_t {
   char *key_value;
 } Pn_rbkey_t;
 
-void Pn_rbkey_initialize(Pn_rbkey_t *rbkey) {
+void Pn_rbkey_initialize(void *vp_rbkey) {
+  Pn_rbkey_t *rbkey = (Pn_rbkey_t*)vp_rbkey;
   assert(rbkey);
   rbkey->registry = NULL;
   rbkey->method = NULL;
   rbkey->key_value = NULL;
 }
 
-void Pn_rbkey_finalize(Pn_rbkey_t *rbkey) {
+void Pn_rbkey_finalize(void *vp_rbkey) {
+  Pn_rbkey_t *rbkey = (Pn_rbkey_t*)vp_rbkey;
   if(rbkey && rbkey->registry && rbkey->method && rbkey->key_value) {
     rb_funcall((VALUE )rbkey->registry, rb_intern(rbkey->method), 1, rb_str_new2(rbkey->key_value));
   }
@@ -591,7 +596,7 @@ int pn_ssl_get_peer_hostname(pn_ssl_t *ssl, char *OUTPUT, size_t *OUTPUT_SIZE);
   }
 
   VALUE pni_ruby_get_from_registry(VALUE key) {
-    rb_funcall(pni_ruby_get_proton_module(), rb_intern("get_from_registry"), 1, key);
+     return rb_funcall(pni_ruby_get_proton_module(), rb_intern("get_from_registry"), 1, key);
   }
 
   void pni_ruby_delete_from_registry(VALUE stored_key) {

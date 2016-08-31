@@ -346,7 +346,7 @@ pn_handle_t pn_map_head(pn_map_t *map)
   for (size_t i = 0; i < map->capacity; i++)
   {
     if (map->entries[i].state != PNI_ENTRY_FREE) {
-      return i + 1;
+      return (pn_handle_t)(i + 1);
     }
   }
 
@@ -355,9 +355,9 @@ pn_handle_t pn_map_head(pn_map_t *map)
 
 pn_handle_t pn_map_next(pn_map_t *map, pn_handle_t entry)
 {
-  for (size_t i = entry; i < map->capacity; i++) {
+  for (size_t i = (size_t)entry; i < map->capacity; i++) {
     if (map->entries[i].state != PNI_ENTRY_FREE) {
-      return i + 1;
+      return (pn_handle_t)(i + 1);
     }
   }
 
@@ -368,14 +368,14 @@ void *pn_map_key(pn_map_t *map, pn_handle_t entry)
 {
   assert(map);
   assert(entry);
-  return map->entries[entry - 1].key;
+  return map->entries[(size_t)entry - 1].key;
 }
 
 void *pn_map_value(pn_map_t *map, pn_handle_t entry)
 {
   assert(map);
   assert(entry);
-  return map->entries[entry - 1].value;
+  return map->entries[(size_t)entry - 1].value;
 }
 
 struct pn_hash_t {
@@ -392,10 +392,8 @@ static bool pni_identity_equals(void *a, void *b)
   return a == b;
 }
 
-extern const pn_class_t *PN_UINTPTR;
-
 #define CID_pni_uintptr CID_pn_void
-static const pn_class_t *pni_uintptr_reify(void *object) { return PN_UINTPTR; }
+static const pn_class_t *pni_uintptr_reify(void *object);
 #define pni_uintptr_new NULL
 #define pni_uintptr_free NULL
 #define pni_uintptr_initialize NULL
@@ -407,8 +405,12 @@ static int pni_uintptr_refcount(void *object) { return -1; }
 #define pni_uintptr_compare NULL
 #define pni_uintptr_inspect NULL
 
-const pn_class_t PNI_UINTPTR = PN_METACLASS(pni_uintptr);
-const pn_class_t *PN_UINTPTR = &PNI_UINTPTR;
+static const pn_class_t PN_UINTPTR[] = {PN_METACLASS(pni_uintptr)};
+
+static const pn_class_t *pni_uintptr_reify(void *object)
+{
+  return PN_UINTPTR;
+}
 
 pn_hash_t *pn_hash(const pn_class_t *clazz, size_t capacity, float load_factor)
 {

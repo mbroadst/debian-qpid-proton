@@ -410,11 +410,9 @@ static void ssl_session_free( pn_ssl_session_t *ssn)
 
 /** Public API - visible to application code */
 
-// TODO: This should really return true as SSL is fully implemented,
-// but the tests currently fail because the fixed certificates aren't usable on windows
 bool pn_ssl_present(void)
 {
-  return false;
+  return true;
 }
 
 pn_ssl_domain_t *pn_ssl_domain( pn_ssl_mode_t mode )
@@ -768,6 +766,13 @@ pn_ssl_t *pn_ssl(pn_transport_t *transport)
   }
 
   transport->ssl = ssl;
+
+  // Set up hostname from any bound connection
+  if (transport->connection) {
+    if (pn_string_size(transport->connection->hostname)) {
+      pn_ssl_set_peer_hostname((pn_ssl_t *) transport, pn_string_get(transport->connection->hostname));
+    }
+  }
 
   SecInvalidateHandle(&ssl->cred_handle);
   SecInvalidateHandle(&ssl->ctxt_handle);
@@ -1525,9 +1530,9 @@ static ssize_t process_input_ssl(pn_transport_t *transport, unsigned int layer, 
 
   do {
     if (ssl->sc_input_shutdown) {
-      // TLS protocol shutdown detected on input
+      // TLS protocol shutdown detected on input, so we are done.
       read_closed(transport, layer, 0);
-      return consumed;
+      return PN_EOS;
     }
 
     // sc_inbuf should be ready for new or additional network encrypted bytes.
@@ -1598,7 +1603,7 @@ static ssize_t process_input_ssl(pn_transport_t *transport, unsigned int layer, 
         start_ssl_shutdown(transport);
       }
     } else if (ssl->state == SSL_CLOSED) {
-      return consumed ? consumed : -1;
+      return PN_EOS;
     }
 
     // Consume or discard the decrypted bytes
@@ -1634,12 +1639,16 @@ static ssize_t process_input_ssl(pn_transport_t *transport, unsigned int layer, 
     }
   } while (available || (ssl->sc_in_count && !ssl->sc_in_incomplete));
 
-  if (ssl->app_input_closed && ssl->state >= SHUTTING_DOWN) {
-    consumed = ssl->app_input_closed;
-    if (transport->io_layers[layer]==&ssl_output_closed_layer) {
-      transport->io_layers[layer] = &ssl_closed_layer;
-    } else {
-      transport->io_layers[layer] = &ssl_input_closed_layer;
+  if (ssl->state >= SHUTTING_DOWN) {
+    if (ssl->app_input_closed || ssl->sc_input_shutdown) {
+      // Next layer doesn't want more bytes, or it can't process without more data than it has seen so far
+      // but the ssl stream has ended
+      consumed = ssl->app_input_closed ? ssl->app_input_closed : PN_EOS;
+      if (transport->io_layers[layer]==&ssl_output_closed_layer) {
+        transport->io_layers[layer] = &ssl_closed_layer;
+      } else {
+        transport->io_layers[layer] = &ssl_input_closed_layer;
+      }
     }
   }
   ssl_log(transport, "process_input_ssl() returning %d, forwarded %d\n", (int) consumed, (int) forwarded);
@@ -1981,6 +1990,19 @@ static bool server_name_matches(const char *server_name, CERT_EXTENSION *alt_nam
   return matched;
 }
 
+const char* pn_ssl_get_remote_subject_subfield(pn_ssl_t *ssl0, pn_ssl_cert_subject_subfield field)
+{
+    return NULL;
+}
+
+int pn_ssl_get_cert_fingerprint(pn_ssl_t *ssl0,
+                                          char *fingerprint,
+                                          size_t fingerprint_length,
+                                          pn_ssl_hash_alg hash_alg)
+{
+    return -1;
+}
+
 static HRESULT verify_peer(pni_ssl_t *ssl, HCERTSTORE root_store, const char *server_name, bool tracing)
 {
   // Free/release the following before return:
@@ -2192,6 +2214,11 @@ static HRESULT verify_peer(pni_ssl_t *ssl, HCERTSTORE root_store, const char *se
 
     if (server_name && ssl->verify_mode == PN_SSL_VERIFY_PEER_NAME &&
         !server_name_matches(server_name, leaf_alt_names, leaf_cert)) {
+      error = SEC_E_WRONG_PRINCIPAL;
+      break;
+    }
+    else if (ssl->verify_mode == PN_SSL_VERIFY_PEER_NAME && !server_name) {
+      ssl_log_error("Error: configuration error: PN_SSL_VERIFY_PEER_NAME configured, but no peer hostname set!");
       error = SEC_E_WRONG_PRINCIPAL;
       break;
     }

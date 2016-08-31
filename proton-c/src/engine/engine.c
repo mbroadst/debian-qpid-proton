@@ -315,6 +315,8 @@ void pn_link_close(pn_link_t *link)
 void pn_link_detach(pn_link_t *link)
 {
   assert(link);
+  if (link->detached) return;
+
   link->detached = true;
   pn_collector_put(link->session->connection->collector, PN_OBJECT, link, PN_LINK_LOCAL_DETACH);
   pn_modified(link->session->connection, &link->endpoint, true);
@@ -1489,6 +1491,11 @@ static void pn_disposition_clear(pn_disposition_t *ds)
 #define pn_delivery_hashcode NULL
 #define pn_delivery_compare NULL
 #define pn_delivery_inspect NULL
+
+pn_delivery_tag_t pn_dtag(const char *bytes, size_t size) {
+  pn_delivery_tag_t dtag = {size, bytes};
+  return dtag;
+}
 
 pn_delivery_t *pn_delivery(pn_link_t *link, pn_delivery_tag_t tag)
 {

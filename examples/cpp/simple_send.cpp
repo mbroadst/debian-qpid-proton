@@ -21,71 +21,90 @@
 
 #include "options.hpp"
 
-#include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
-#include "proton/connection.hpp"
-#include "proton/value.hpp"
+#include <proton/connection.hpp>
+#include <proton/default_container.hpp>
+#include <proton/messaging_handler.hpp>
+#include <proton/tracker.hpp>
+#include <proton/value.hpp>
 
 #include <iostream>
 #include <map>
 
+#include "fake_cpp11.hpp"
+
 class simple_send : public proton::messaging_handler {
   private:
-    proton::url url;
-    proton::counted_ptr<proton::sender> sender;
+    std::string url;
+    std::string user;
+    std::string password;
+    proton::sender sender;
     int sent;
     int confirmed;
     int total;
+
   public:
+    simple_send(const std::string &s, const std::string &u, const std::string &p, int c) :
+        url(s), user(u), password(p), sent(0), confirmed(0), total(c) {}
 
-    simple_send(const std::string &s, int c) : url(s), sent(0), confirmed(0), total(c) {}
-
-    void on_start(proton::event &e) {
-        sender = e.container().open_sender(url).ptr();
+    void on_container_start(proton::container &c) OVERRIDE {
+        proton::connection_options co;
+        if (!user.empty()) co.user(user);
+        if (!password.empty()) co.password(password);
+        sender = c.open_sender(url, co);
     }
 
-    void on_sendable(proton::event &e) {
-        proton::sender& sender = e.sender();
-        while (sender.credit() && sent < total) {
+    void on_sendable(proton::sender &s) OVERRIDE {
+        while (s.credit() && sent < total) {
             proton::message msg;
-            msg.id(proton::value(sent + 1));
             std::map<std::string, int> m;
-            m["sequence"] = sent+1;
-            msg.body(proton::as<proton::MAP>(m));
-            sender.send(msg);
+            m["sequence"] = sent + 1;
+
+            msg.id(sent + 1);
+            msg.body(m);
+
+            s.send(msg);
             sent++;
         }
     }
 
-    void on_accepted(proton::event &e) {
+    void on_tracker_accept(proton::tracker &t) OVERRIDE {
         confirmed++;
+
         if (confirmed == total) {
             std::cout << "all messages confirmed" << std::endl;
-            e.connection().close();
+            t.connection().close();
         }
     }
 
-    void on_disconnected(proton::event &e) {
+    void on_transport_close(proton::transport &) OVERRIDE {
         sent = confirmed;
     }
 };
 
 int main(int argc, char **argv) {
-    // Command line options
     std::string address("127.0.0.1:5672/examples");
+    std::string user;
+    std::string password;
     int message_count = 100;
-    options opts(argc, argv);
+    example::options opts(argc, argv);
+
     opts.add_value(address, 'a', "address", "connect and send to URL", "URL");
     opts.add_value(message_count, 'm', "messages", "send COUNT messages", "COUNT");
+    opts.add_value(user, 'u', "user", "authenticate as USER", "USER");
+    opts.add_value(password, 'p', "password", "authenticate with PASSWORD", "PASSWORD");
+
     try {
         opts.parse();
-        simple_send send(address, message_count);
-        proton::container(send).run();
+
+        simple_send send(address, user, password, message_count);
+        proton::default_container(send).run();
+
         return 0;
-    } catch (const bad_option& e) {
+    } catch (const example::bad_option& e) {
         std::cout << opts << std::endl << e.what() << std::endl;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

@@ -1,5 +1,5 @@
-#ifndef PROTON_CPP_TRANSPORT_H
-#define PROTON_CPP_TRANSPORT_H
+#ifndef PROTON_TRANSPORT_HPP
+#define PROTON_TRANSPORT_HPP
 
 /*
  *
@@ -22,24 +22,49 @@
  *
  */
 
-#include "proton/facade.hpp"
-
-#include "proton/export.hpp"
+#include "./internal/object.hpp"
+#include "./types.hpp"
+#include "./internal/export.hpp"
 
 struct pn_transport_t;
 
 namespace proton {
 
 class connection;
+class error_condition;
+class sasl;
 
-/** Represents a connection transport */
-class transport : public counted_facade<pn_transport_t, transport>
-{
-  public:
-    class connection* connection() const;
-};
-
-
+namespace io {
+class connection_engine;
 }
 
-#endif  /*!PROTON_CPP_TRANSPORT_H*/
+/// A network channel supporting an AMQP connection.
+class transport : public internal::object<pn_transport_t> {
+    /// @cond INTERNAL
+    transport(pn_transport_t* t) : internal::object<pn_transport_t>(t) {}
+    /// @endcond 
+
+  public:
+    /// Create an empty transport.
+    transport() : internal::object<pn_transport_t>(0) {}
+
+    /// Get the connection associated with this transport.
+    PN_CPP_EXTERN class connection connection() const;
+
+    /// Get SSL information.
+    PN_CPP_EXTERN class ssl ssl() const;
+
+    /// Get SASL information.
+    PN_CPP_EXTERN class sasl sasl() const;
+
+    /// Get the error condition.
+    PN_CPP_EXTERN class error_condition error() const;
+
+    /// @cond INTERNAL
+    friend class internal::factory<transport>;
+    /// @endcond
+};
+
+} // proton
+
+#endif // PROTON_TRANSPORT_HPP

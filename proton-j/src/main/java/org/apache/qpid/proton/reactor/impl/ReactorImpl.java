@@ -44,12 +44,14 @@ import org.apache.qpid.proton.engine.impl.CollectorImpl;
 import org.apache.qpid.proton.engine.impl.ConnectionImpl;
 import org.apache.qpid.proton.engine.impl.RecordImpl;
 import org.apache.qpid.proton.reactor.Acceptor;
+import org.apache.qpid.proton.reactor.impl.AcceptorImpl;
 import org.apache.qpid.proton.reactor.Reactor;
 import org.apache.qpid.proton.reactor.ReactorChild;
 import org.apache.qpid.proton.reactor.Selectable;
 import org.apache.qpid.proton.reactor.Selectable.Callback;
 import org.apache.qpid.proton.reactor.Selector;
 import org.apache.qpid.proton.reactor.Task;
+import org.apache.qpid.proton.messenger.impl.Address;
 
 public class ReactorImpl implements Reactor, Extendable {
     public static final ExtendableAccessor<Event, Handler> ROOT = new ExtendableAccessor<>(Handler.class);
@@ -62,6 +64,7 @@ public class ReactorImpl implements Reactor, Extendable {
     private Set<ReactorChild> children;
     private int selectables;
     private boolean yield;
+    private boolean stop;
     private Selectable selectable;
     private EventType previous;
     private Timer timer;
@@ -69,6 +72,7 @@ public class ReactorImpl implements Reactor, Extendable {
     private Selector selector;
     private Record attachments;
     private final IO io;
+    protected static final String CONNECTION_PEER_ADDRESS_KEY = "pn_reactor_connection_peer_address";
 
     @Override
     public long mark() {
@@ -280,7 +284,7 @@ public class ReactorImpl implements Reactor, Extendable {
                 collector.pop();
 
             } else {
-                if (more()) {
+                if (!stop && more()) {
                     if (previous != Type.REACTOR_QUIESCED && this.previous != Type.REACTOR_FINAL) {
                         collector.put(Type.REACTOR_QUIESCED, this);
                     } else {
@@ -292,6 +296,7 @@ public class ReactorImpl implements Reactor, Extendable {
                         update(selectable);
                         selectable = null;
                     } else {
+                        collector.put(Type.REACTOR_FINAL, this);
                         return false;
                     }
                 }
@@ -323,10 +328,7 @@ public class ReactorImpl implements Reactor, Extendable {
 
     @Override
     public void stop() throws HandlerException {
-        collector.put(Type.REACTOR_FINAL, this);
-        // (Comment from C code) XXX: should consider removing this from stop to avoid reentrance
-        process();
-        collector = null;
+        stop = true;
     }
 
     private boolean more() {
@@ -339,6 +341,8 @@ public class ReactorImpl implements Reactor, Extendable {
         start();
         while(process()) {}
         stop();
+        process();
+        collector = null;
     }
 
     // pn_reactor_schedule from reactor.c
@@ -384,7 +388,7 @@ public class ReactorImpl implements Reactor, Extendable {
 
 
     // pni_timer_finalize from reactor.c
-    private class TimerFree implements Callback {
+    private static class TimerFree implements Callback {
         @Override
         public void run(Selectable selectable) {
             try {
@@ -424,6 +428,44 @@ public class ReactorImpl implements Reactor, Extendable {
         children.add(connection);
         ((ConnectionImpl)connection).setReactor(this);
         return connection;
+    }
+
+    @Override
+    public Connection connectionToHost(String host, int port, Handler handler) {
+        Connection connection = connection(handler);
+        setConnectionHost(connection, host, port);
+        return connection;
+    }
+
+    @Override
+    public String getConnectionAddress(Connection connection) {
+        Record r = connection.attachments();
+        Address addr = r.get(CONNECTION_PEER_ADDRESS_KEY, Address.class);
+        if (addr != null) {
+            StringBuilder sb = new StringBuilder(addr.getHost());
+            if (addr.getPort() != null)
+                sb.append(":" + addr.getPort());
+            return sb.toString();
+        }
+        return null;
+    }
+
+    @Override
+    public void setConnectionHost(Connection connection,
+                                  String host, int port) {
+        Record r = connection.attachments();
+        // cannot set the address on an incoming connection
+        if (r.get(AcceptorImpl.CONNECTION_ACCEPTOR_KEY, Acceptor.class) == null) {
+            Address addr = new Address();
+            addr.setHost(host);
+            if (port == 0) {
+                port = 5672;
+            }
+            addr.setPort(Integer.toString(port));
+            r.set(CONNECTION_PEER_ADDRESS_KEY, Address.class, addr);
+        } else {
+            throw new IllegalStateException("Cannot set the host address on an incoming Connection");
+        }
     }
 
     @Override

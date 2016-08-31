@@ -19,70 +19,110 @@
  *
  */
 #include "proton/session.hpp"
-#include "proton/connection.h"
-#include "proton/session.h"
+
+#include <proton/connection.h>
+#include <proton/session.h>
 #include "proton/session.hpp"
 #include "proton/connection.hpp"
+#include "proton/session_options.hpp"
 
 #include "contexts.hpp"
-#include "container_impl.hpp"
+#include "proton_bits.hpp"
+
+#include <string>
 
 namespace proton {
 
 void session::open() {
-    pn_session_open(pn_cast(this));
+    pn_session_open(pn_object());
 }
 
-connection &session::connection() const {
-    return *proton::connection::cast(pn_session_connection(pn_cast(this)));
+void session::open(const session_options &opts) {
+    opts.apply(*this);
+    pn_session_open(pn_object());
+}
+
+void session::close()
+{
+    pn_session_close(pn_object());
+}
+
+container& session::container() const {
+    return connection().container();
+}
+
+connection session::connection() const {
+    return make_wrapper(pn_session_connection(pn_object()));
 }
 
 namespace {
-std::string set_name(const std::string& name, session* s) {
-    if (name.empty())
-        return connection_context::get(
-            pn_cast(&s->connection())).container_impl->next_link_name();
-    return name;
+std::string next_link_name(const connection& c) {
+    io::link_namer* ln = connection_context::get(c).link_gen;
+
+    return ln ? ln->link_name() : uuid::random().str();
 }
 }
 
-receiver& session::create_receiver(const std::string& name) {
-    return *reinterpret_cast<receiver*>(
-        pn_receiver(pn_cast(this), set_name(name, this).c_str()));
+sender session::open_sender(const std::string &addr) {
+    return open_sender(addr, sender_options());
 }
 
-sender& session::create_sender(const std::string& name) {
-    return *reinterpret_cast<sender*>(
-        pn_sender(pn_cast(this), set_name(name, this).c_str()));
-}
-
-sender& session::open_sender(const std::string &addr, handler *h) {
-    sender& snd = create_sender();
-    snd.target().address(addr);
-    if (h) snd.handler(*h);
-    snd.open();
+sender session::open_sender(const std::string &addr, const sender_options &so) {
+    pn_link_t *lnk = pn_sender(pn_object(), next_link_name(connection()).c_str());
+    pn_terminus_set_address(pn_link_target(lnk), addr.c_str());
+    sender snd(make_wrapper<sender>(lnk));
+    snd.open(so);
     return snd;
 }
 
-receiver& session::open_receiver(const std::string &addr, bool dynamic, handler *h)
+receiver session::open_receiver(const std::string &addr) {
+    return open_receiver(addr, receiver_options());
+}
+
+receiver session::open_receiver(const std::string &addr, const receiver_options &ro)
 {
-    receiver& rcv = create_receiver();
-    rcv.source().address(addr);
-    if (dynamic) rcv.source().dynamic(true);
-    if (h) rcv.handler(*h);
-    rcv.open();
+    pn_link_t *lnk = pn_receiver(pn_object(), next_link_name(connection()).c_str());
+    pn_terminus_set_address(pn_link_source(lnk), addr.c_str());
+    receiver rcv(make_wrapper<receiver>(lnk));
+    rcv.open(ro);
     return rcv;
 }
 
-endpoint::state session::state() const { return pn_session_state(pn_cast(this)); }
+error_condition session::error() const {
+    return make_wrapper(pn_session_remote_condition(pn_object()));
+}
 
-link_range session::find_links(endpoint::state mask)  const {
-    link_range r(connection().find_links(mask));
-    link_iterator i(r.begin(), this);
-    if (i && this != &i->session())
-        ++i;
-    return link_range(i);
+size_t session::incoming_bytes() const {
+    return pn_session_incoming_bytes(pn_object());
+}
+
+size_t session::outgoing_bytes() const {
+    return pn_session_outgoing_bytes(pn_object());
+}
+
+sender_range session::senders() const {
+    pn_link_t *lnk = pn_link_head(pn_session_connection(pn_object()), 0);
+    while (lnk) {
+        if (pn_link_is_sender(lnk) && pn_link_session(lnk) == pn_object())
+            break;
+        lnk = pn_link_next(lnk, 0);
+    }
+    return sender_range(sender_iterator(make_wrapper<sender>(lnk), pn_object()));
+}
+
+receiver_range session::receivers() const {
+    pn_link_t *lnk = pn_link_head(pn_session_connection(pn_object()), 0);
+    while (lnk) {
+        if (pn_link_is_receiver(lnk) && pn_link_session(lnk) == pn_object())
+            break;
+        lnk = pn_link_next(lnk, 0);
+    }
+    return receiver_range(receiver_iterator(make_wrapper<receiver>(lnk), pn_object()));
+}
+
+session_iterator session_iterator::operator++() {
+    obj_ = pn_session_next(unwrap(obj_), 0);
+    return *this;
 }
 
 } // namespace proton
-

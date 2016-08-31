@@ -19,56 +19,61 @@
  *
  */
 
-#include "proton/acceptor.hpp"
-#include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
+#include <proton/connection.hpp>
+#include <proton/default_container.hpp>
+#include <proton/messaging_handler.hpp>
+#include <proton/sender.hpp>
+#include <proton/tracker.hpp>
 
-//#include "proton/acceptor.hpp"
 #include <iostream>
+
+#include "fake_cpp11.hpp"
 
 class hello_world_direct : public proton::messaging_handler {
   private:
-    proton::url url;
-    proton::counted_ptr<proton::acceptor> acceptor;
+    std::string url;
+    proton::listener listener;
+
   public:
+    hello_world_direct(const std::string& u) : url(u) {}
 
-    hello_world_direct(const proton::url& u) : url(u) {}
-
-    void on_start(proton::event &e) {
-        acceptor = e.container().listen(url).ptr();
-        e.container().open_sender(url);
+    void on_container_start(proton::container &c) OVERRIDE {
+        listener = c.listen(url);
+        c.open_sender(url);
     }
 
-    void on_sendable(proton::event &e) {
-        proton::message m;
-        m.body("Hello World!");
-        e.sender().send(m);
-        e.sender().close();
+    void on_sendable(proton::sender &s) OVERRIDE {
+        proton::message m("Hello World!");
+        s.send(m);
+        s.close();
     }
 
-    void on_message(proton::event &e) {
-        std::cout << e.message().body() << std::endl;
+    void on_message(proton::delivery &, proton::message &m) OVERRIDE {
+        std::cout << m.body() << std::endl;
     }
 
-    void on_accepted(proton::event &e) {
-        e.connection().close();
+    void on_tracker_accept(proton::tracker &t) OVERRIDE {
+        t.connection().close();
     }
 
-    void on_connection_closed(proton::event &e) {
-        acceptor->close();
+    void on_connection_close(proton::connection&) OVERRIDE {
+        listener.stop();
     }
 };
 
 int main(int argc, char **argv) {
     try {
-        // Pick an "unusual" port since we are going to be talking to ourselves, not a broker.
+        // Pick an "unusual" port since we are going to be talking to
+        // ourselves, not a broker.
         std::string url = argc > 1 ? argv[1] : "127.0.0.1:8888/examples";
 
         hello_world_direct hwd(url);
-        proton::container(hwd).run();
+        proton::default_container(hwd).run();
+
         return 0;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

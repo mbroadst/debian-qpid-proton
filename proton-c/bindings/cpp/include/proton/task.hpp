@@ -1,5 +1,5 @@
-#ifndef PROTON_CPP_TASK_H
-#define PROTON_CPP_TASK_H
+#ifndef PROTON_TASK_HPP
+#define PROTON_TASK_HPP
 
 /*
  *
@@ -21,20 +21,28 @@
  * under the License.
  *
  */
-#include "proton/export.hpp"
-#include "proton/facade.hpp"
 
-#include "proton/reactor.h"
+/// @cond INTERNAL
+/// XXX Needs more discussion
+    
+#include "./internal/export.hpp"
+#include "./internal/object.hpp"
+
+#include <proton/reactor.h>
 
 namespace proton {
 
-/** A task for timer events */
-class task : public counted_facade<pn_task_t, task> {
+/// **Experimental** - A task for timer events.
+class task : public internal::object<pn_task_t> {
   public:
-    /** Cancel the scheduled task. */
+    task(pn_task_t* t) : internal::object<pn_task_t>(t) {}
+
+    /// Cancel the scheduled task.
     PN_CPP_EXTERN void cancel();
 };
 
-}
+} // proton
 
-#endif  /*!PROTON_CPP_TASK_H*/
+/// @endcond
+
+#endif // PROTON_TASK_HPP

@@ -85,7 +85,7 @@ static int pn_url_inspect(void *obj, pn_string_t *dst)
 #define pn_url_initialize NULL
 
 
-PN_EXTERN pn_url_t *pn_url() {
+pn_url_t *pn_url() {
     static const pn_class_t clazz = PN_CLASS(pn_url);
     pn_url_t *url = (pn_url_t*) pn_class_new(&clazz, sizeof(pn_url_t));
     if (!url) return NULL;
@@ -98,7 +98,7 @@ PN_EXTERN pn_url_t *pn_url() {
  *@param[in] url A URL string.
  *@return The parsed pn_url_t or NULL if url is not a valid URL string.
  */
-PN_EXTERN pn_url_t *pn_url_parse(const char *str) {
+pn_url_t *pn_url_parse(const char *str) {
     if (!str || !*str)          /* Empty string or NULL is illegal. */
         return NULL;
 
@@ -117,10 +117,10 @@ PN_EXTERN pn_url_t *pn_url_parse(const char *str) {
 }
 
 /** Free a URL */
-PN_EXTERN void pn_url_free(pn_url_t *url) { pn_free(url); }
+void pn_url_free(pn_url_t *url) { pn_free(url); }
 
 /** Clear the contents of the URL. */
-PN_EXTERN void pn_url_clear(pn_url_t *url) {
+void pn_url_clear(pn_url_t *url) {
     pn_url_set_scheme(url, NULL);
     pn_url_set_username(url, NULL);
     pn_url_set_password(url, NULL);
@@ -130,13 +130,33 @@ PN_EXTERN void pn_url_clear(pn_url_t *url) {
     pn_string_clear(url->str);
 }
 
+/** URL-encode src and append to dst. */
+static void pni_urlencode(pn_string_t *dst, const char* src) {
+    static const char *bad = "@:/";
+
+    if (!src) return;
+    const char *i = src;
+    const char *j = strpbrk(i, bad);
+    while (j) {
+        pn_string_addf(dst, "%.*s", (int)(j-i), i);
+        pn_string_addf(dst, "%%%02X", (int)*j);
+        i = j + 1;
+        j = strpbrk(i, bad);
+    }
+    pn_string_addf(dst, "%s", i);
+}
+
+
 /** Return the string form of a URL. */
-PN_EXTERN const char *pn_url_str(pn_url_t *url) {
+const char *pn_url_str(pn_url_t *url) {
     if (pn_string_get(url->str) == NULL) {
         pn_string_set(url->str, "");
         if (url->scheme) pn_string_addf(url->str, "%s://", url->scheme);
-        if (url->username) pn_string_addf(url->str, "%s", url->username);
-        if (url->password) pn_string_addf(url->str, ":%s", url->password);
+        if (url->username) pni_urlencode(url->str, url->username);
+        if (url->password) {
+            pn_string_addf(url->str, ":");
+            pni_urlencode(url->str, url->password);
+        }
         if (url->username || url->password) pn_string_addf(url->str, "@");
         if (url->host) {
             if (strchr(url->host, ':')) pn_string_addf(url->str, "[%s]", url->host);
@@ -148,19 +168,19 @@ PN_EXTERN const char *pn_url_str(pn_url_t *url) {
     return pn_string_get(url->str);
 }
 
-PN_EXTERN const char *pn_url_get_scheme(pn_url_t *url) { return url->scheme; }
-PN_EXTERN const char *pn_url_get_username(pn_url_t *url) { return url->username; }
-PN_EXTERN const char *pn_url_get_password(pn_url_t *url) { return url->password; }
-PN_EXTERN const char *pn_url_get_host(pn_url_t *url) { return url->host; }
-PN_EXTERN const char *pn_url_get_port(pn_url_t *url) { return url->port; }
-PN_EXTERN const char *pn_url_get_path(pn_url_t *url) { return url->path; }
+const char *pn_url_get_scheme(pn_url_t *url) { return url->scheme; }
+const char *pn_url_get_username(pn_url_t *url) { return url->username; }
+const char *pn_url_get_password(pn_url_t *url) { return url->password; }
+const char *pn_url_get_host(pn_url_t *url) { return url->host; }
+const char *pn_url_get_port(pn_url_t *url) { return url->port; }
+const char *pn_url_get_path(pn_url_t *url) { return url->path; }
 
 #define SET(part) free(url->part); url->part = copy(part); pn_string_clear(url->str)
-PN_EXTERN void pn_url_set_scheme(pn_url_t *url, const char *scheme) { SET(scheme); }
-PN_EXTERN void pn_url_set_username(pn_url_t *url, const char *username) { SET(username); }
-PN_EXTERN void pn_url_set_password(pn_url_t *url, const char *password) { SET(password); }
-PN_EXTERN void pn_url_set_host(pn_url_t *url, const char *host) { SET(host); }
-PN_EXTERN void pn_url_set_port(pn_url_t *url, const char *port) { SET(port); }
-PN_EXTERN void pn_url_set_path(pn_url_t *url, const char *path) { SET(path); }
+void pn_url_set_scheme(pn_url_t *url, const char *scheme) { SET(scheme); }
+void pn_url_set_username(pn_url_t *url, const char *username) { SET(username); }
+void pn_url_set_password(pn_url_t *url, const char *password) { SET(password); }
+void pn_url_set_host(pn_url_t *url, const char *host) { SET(host); }
+void pn_url_set_port(pn_url_t *url, const char *port) { SET(port); }
+void pn_url_set_path(pn_url_t *url, const char *path) { SET(path); }
 
 

@@ -18,73 +18,67 @@
  * under the License.
  *
  */
+
+#include "proton_bits.hpp"
+
 #include "proton/link.hpp"
 #include "proton/error.hpp"
 #include "proton/connection.hpp"
-#include "container_impl.hpp"
-#include "msg.hpp"
-#include "contexts.hpp"
 
-#include "proton/connection.h"
-#include "proton/session.h"
-#include "proton/link.h"
+#include <proton/connection.h>
+#include <proton/session.h>
+#include <proton/link.h>
+
+#include "contexts.hpp"
+#include "msg.hpp"
+#include "proton_bits.hpp"
 
 namespace proton {
 
-void link::open() {
-    pn_link_open(pn_cast(this));
+void link::attach() {
+    pn_link_open(pn_object());
 }
 
 void link::close() {
-    pn_link_close(pn_cast(this));
+    pn_link_close(pn_object());
 }
 
-sender* link::sender() {
-    return pn_link_is_sender(pn_cast(this)) ? reinterpret_cast<class sender*>(this) : 0;
-}
-
-receiver* link::receiver() {
-    return pn_link_is_receiver(pn_cast(this)) ? reinterpret_cast<class receiver*>(this) : 0;
-}
-
-const sender* link::sender() const {
-    return pn_link_is_sender(pn_cast(this)) ? reinterpret_cast<const class sender*>(this) : 0;
-}
-
-const receiver* link::receiver() const {
-    return pn_link_is_receiver(pn_cast(this)) ? reinterpret_cast<const class receiver*>(this) : 0;
+void link::detach() {
+    pn_link_detach(pn_object());
 }
 
 int link::credit() const {
-    return pn_link_credit(pn_cast(this));
+    pn_link_t *lnk = pn_object();
+    if (pn_link_is_sender(lnk))
+        return pn_link_credit(lnk);
+    link_context& lctx = link_context::get(lnk);
+    return pn_link_credit(lnk) + lctx.pending_credit;
 }
 
-terminus& link::source() const { return *terminus::cast(pn_link_source(pn_cast(this))); }
-terminus& link::target() const { return *terminus::cast(pn_link_target(pn_cast(this))); }
-terminus& link::remote_source() const { return *terminus::cast(pn_link_remote_source(pn_cast(this))); }
-terminus& link::remote_target() const { return *terminus::cast(pn_link_remote_target(pn_cast(this))); }
-
-std::string link::name() const { return std::string(pn_link_name(pn_cast(this)));}
-
-class connection &link::connection() const {
-    return *connection::cast(pn_session_connection(pn_link_session(pn_cast(this))));
+bool link::draining() {
+    pn_link_t *lnk = pn_object();
+    link_context& lctx = link_context::get(lnk);
+    if (pn_link_is_sender(lnk))
+        return pn_link_credit(lnk) > 0 && lctx.draining;
+    else
+        return lctx.draining;
 }
 
-class session &link::session() const {
-    return *session::cast(pn_link_session(pn_cast(this)));
+std::string link::name() const { return str(pn_link_name(pn_object()));}
+
+container& link::container() const {
+    return connection().container();
 }
 
-void link::handler(class handler &h) {
-    pn_record_t *record = pn_link_attachments(pn_cast(this));
-    connection_context& cc(connection_context::get(pn_cast(&connection())));
-    counted_ptr<pn_handler_t> chandler = cc.container_impl->cpp_handler(&h);
-    pn_record_set_handler(record, chandler.get());
+class connection link::connection() const {
+    return make_wrapper(pn_session_connection(pn_link_session(pn_object())));
 }
 
-void link::detach_handler() {
-    pn_record_t *record = pn_link_attachments(pn_cast(this));
-    pn_record_set_handler(record, 0);
+class session link::session() const {
+    return make_wrapper(pn_link_session(pn_object()));
 }
 
-endpoint::state link::state() const { return pn_link_state(pn_cast(this)); }
+error_condition link::error() const {
+    return make_wrapper(pn_link_remote_condition(pn_object()));
+}
 }

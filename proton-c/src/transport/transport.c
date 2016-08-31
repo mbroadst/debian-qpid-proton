@@ -46,13 +46,13 @@ static ssize_t transport_consume(pn_transport_t *transport);
 /*
  * Call this any time anything happens that may affect channel_max:
  * i.e. when the app indicates a preference, or when we receive the
- * OPEN frame from the remote peer.  And call it to do the final 
- * calculation just before we communicate our limit to the remote 
+ * OPEN frame from the remote peer.  And call it to do the final
+ * calculation just before we communicate our limit to the remote
  * peer by sending our OPEN frame.
  */
 static void pni_calculate_channel_max(pn_transport_t *transport) {
   /*
-   * The application cannot make the limit larger than 
+   * The application cannot make the limit larger than
    * what this library will allow.
    */
   transport->channel_max = (PN_IMPL_CHANNEL_MAX < transport->local_channel_max)
@@ -60,7 +60,7 @@ static void pni_calculate_channel_max(pn_transport_t *transport) {
                            : transport->local_channel_max;
 
   /*
-   * The remote peer's constraint is not valid until the 
+   * The remote peer's constraint is not valid until the
    * peer's open frame has been received.
    */
   if(transport->open_rcvd) {
@@ -273,6 +273,12 @@ ssize_t pn_io_layer_input_autodetect(pn_transport_t *transport, unsigned int lay
       pn_transport_logf(transport, "%s detected", pni_protocol_name(protocol));
   switch (protocol) {
   case PNI_PROTOCOL_SSL:
+    if (!(transport->allowed_layers & LAYER_SSL)) {
+      error = "SSL protocol header not allowed (maybe detected twice)";
+      break;
+    }
+    transport->present_layers |= LAYER_SSL;
+    transport->allowed_layers &= LAYER_AMQP1 | LAYER_AMQPSASL;
     if (!transport->ssl) {
       pn_ssl(transport);
     }
@@ -280,6 +286,12 @@ ssize_t pn_io_layer_input_autodetect(pn_transport_t *transport, unsigned int lay
     transport->io_layers[layer+1] = &pni_autodetect_layer;
     return ssl_layer.process_input(transport, layer, bytes, available);
   case PNI_PROTOCOL_AMQP_SSL:
+    if (!(transport->allowed_layers & LAYER_AMQPSSL)) {
+      error = "AMQP SSL protocol header not allowed (maybe detected twice)";
+      break;
+    }
+    transport->present_layers |= LAYER_AMQPSSL;
+    transport->allowed_layers &= LAYER_AMQP1 | LAYER_AMQPSASL;
     if (!transport->ssl) {
       pn_ssl(transport);
     }
@@ -287,6 +299,12 @@ ssize_t pn_io_layer_input_autodetect(pn_transport_t *transport, unsigned int lay
     transport->io_layers[layer+1] = &pni_autodetect_layer;
     return 8;
   case PNI_PROTOCOL_AMQP_SASL:
+    if (!(transport->allowed_layers & LAYER_AMQPSASL)) {
+      error = "AMQP SASL protocol header not allowed (maybe detected twice)";
+      break;
+    }
+    transport->present_layers |= LAYER_AMQPSASL;
+    transport->allowed_layers &= LAYER_AMQP1 | LAYER_AMQPSSL;
     if (!transport->sasl) {
       pn_sasl(transport);
     }
@@ -297,6 +315,12 @@ ssize_t pn_io_layer_input_autodetect(pn_transport_t *transport, unsigned int lay
     pni_sasl_set_external_security(transport, pn_ssl_get_ssf((pn_ssl_t*)transport), pn_ssl_get_remote_subject((pn_ssl_t*)transport));
     return 8;
   case PNI_PROTOCOL_AMQP1:
+    if (!(transport->allowed_layers & LAYER_AMQP1)) {
+      error = "AMQP1.0 protocol header not allowed (maybe detected twice)";
+      break;
+    }
+    transport->present_layers |= LAYER_AMQP1;
+    transport->allowed_layers = LAYER_NONE;
     if (transport->auth_required && !pn_transport_is_authenticated(transport)) {
       pn_do_error(transport, "amqp:connection:policy-error",
                   "Client skipped authentication - forbidden");
@@ -394,6 +418,9 @@ static void pn_transport_initialize(void *object)
     transport->io_layers[layer] = NULL;
   }
 
+  transport->allowed_layers = LAYER_AMQP1 | LAYER_AMQPSASL | LAYER_AMQPSSL | LAYER_SSL;
+  transport->present_layers = LAYER_NONE;
+
   // Defer setting up the layers until the first data arrives or is sent
   transport->io_layers[0] = &pni_setup_layer;
 
@@ -409,18 +436,18 @@ static void pn_transport_initialize(void *object)
   transport->remote_max_frame = (uint32_t) 0xffffffff;
 
   /*
-   * We set the local limit on channels to 2^15, because 
+   * We set the local limit on channels to 2^15, because
    * parts of the code use the topmost bit (of a short)
    * as a flag.
-   * The peer that this transport connects to may also 
+   * The peer that this transport connects to may also
    * place its own limit on max channel number, and the
    * application may also set a limit.
-   * The maximum that we use will be the minimum of all 
+   * The maximum that we use will be the minimum of all
    * these constraints.
    */
-  // There is no constraint yet from remote peer, 
+  // There is no constraint yet from remote peer,
   // so set to max possible.
-  transport->remote_channel_max = 65535;  
+  transport->remote_channel_max = 65535;
   transport->local_channel_max  = PN_IMPL_CHANNEL_MAX;
   transport->channel_max        = transport->local_channel_max;
 
@@ -459,9 +486,11 @@ static void pn_transport_initialize(void *object)
 
   transport->referenced = true;
 
-  transport->trace = (pn_env_bool("PN_TRACE_RAW") ? PN_TRACE_RAW : PN_TRACE_OFF) |
+  transport->trace =
+    (pn_env_bool("PN_TRACE_RAW") ? PN_TRACE_RAW : PN_TRACE_OFF) |
     (pn_env_bool("PN_TRACE_FRM") ? PN_TRACE_FRM : PN_TRACE_OFF) |
-    (pn_env_bool("PN_TRACE_DRV") ? PN_TRACE_DRV : PN_TRACE_OFF);
+    (pn_env_bool("PN_TRACE_DRV") ? PN_TRACE_DRV : PN_TRACE_OFF) |
+    (pn_env_bool("PN_TRACE_EVT") ? PN_TRACE_EVT : PN_TRACE_OFF) ;
 }
 
 
@@ -560,9 +589,21 @@ void pn_transport_set_server(pn_transport_t *transport)
 const char *pn_transport_get_user(pn_transport_t *transport)
 {
   assert(transport);
-  if (!transport->sasl) return "anonymous";
+  // Client - just return whatever we gave to sasl
+  if (!transport->server) {
+    if (transport->sasl) return pn_sasl_get_user((pn_sasl_t *)transport);
+    return "anonymous";
+  }
 
-  return pn_sasl_get_user((pn_sasl_t *)transport);
+  // Server
+  // Not finished authentication yet
+  if (!(transport->present_layers & LAYER_AMQP1)) return 0;
+  // We have SASL so it takes precedence
+  if (transport->present_layers & LAYER_AMQPSASL) return pn_sasl_get_user((pn_sasl_t *)transport);
+  // No SASL but we may have a SSL remote_subject
+  if (transport->present_layers & (LAYER_AMQPSSL | LAYER_SSL)) return pn_ssl_get_remote_subject((pn_ssl_t *)transport);
+  // otherwise it's just an unauthenticated anonymous connection
+  return "anonymous";
 }
 
 void pn_transport_require_auth(pn_transport_t *transport, bool required)
@@ -1183,7 +1224,7 @@ int pn_do_begin(pn_transport_t *transport, uint8_t frame_type, uint16_t channel,
   int err = pn_data_scan(args, "D.[?HI]", &reply, &remote_channel, &next);
   if (err) return err;
 
-  // AMQP 1.0 section 2.7.1 - if the peer doesn't honor our channel_max -- 
+  // AMQP 1.0 section 2.7.1 - if the peer doesn't honor our channel_max --
   // express our displeasure by closing the connection with a framing error.
   if (remote_channel > transport->channel_max) {
     pn_do_error(transport,
@@ -1197,10 +1238,17 @@ int pn_do_begin(pn_transport_t *transport, uint8_t frame_type, uint16_t channel,
 
   pn_session_t *ssn;
   if (reply) {
-    // XXX: what if session is NULL?
     ssn = (pn_session_t *) pn_hash_get(transport->local_channels, remote_channel);
   } else {
     ssn = pn_session(transport->connection);
+  }
+  if (ssn == 0) {
+    pn_do_error(transport,
+                "amqp:connection:framing-error",
+                "remote channel is above negotiated channel_max %d.",
+                transport->channel_max
+               );
+    return PN_TRANSPORT_ERROR;
   }
   ssn->state.incoming_transfer_count = next;
   pni_map_remote_channel(ssn, channel);
@@ -2707,11 +2755,11 @@ uint16_t pn_transport_get_channel_max(pn_transport_t *transport)
 int pn_transport_set_channel_max(pn_transport_t *transport, uint16_t requested_channel_max)
 {
   /*
-   * Once the OPEN frame has been sent, we have communicated our 
+   * Once the OPEN frame has been sent, we have communicated our
    * wishes to the remote client and there is no way to renegotiate.
    * After that point, we do not allow the application to make changes.
-   * Before that point, however, the app is free to either raise or 
-   * lower our local limit.  (But the app cannot raise it above the 
+   * Before that point, however, the app is free to either raise or
+   * lower our local limit.  (But the app cannot raise it above the
    * limit imposed by this library.)
    * The channel-max value will be finalized just before the OPEN frame
    * is sent.

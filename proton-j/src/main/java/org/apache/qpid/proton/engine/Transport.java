@@ -38,31 +38,31 @@ import org.apache.qpid.proton.engine.impl.TransportImpl;
  * </p>
  * <p>
  * <strong>Processing the input data received from another AMQP container.</strong>
+ * </p>
  * <ol>
  * <li>{@link #getInputBuffer()} </li>
  * <li>Write data into input buffer</li>
  * <li>{@link #processInput()}</li>
  * <li>Check the result, e.g. by calling {@link TransportResult#checkIsOk()}</li>
  * </ol>
- * </p>
  * <p>
  * <strong>Getting the output data to send to another AMQP container:</strong>
+ * </p>
  * <ol>
  * <li>{@link #getOutputBuffer()} </li>
  * <li>Read output from output buffer</li>
  * <li>{@link #outputConsumed()}</li>
  * </ol>
- * </p>
  *
  * <p>The following methods on the byte buffers returned by {@link #getInputBuffer()} and {@link #getOutputBuffer()}
  * must not be called:
+ * </p>
  * <ol>
  * <li> {@link ByteBuffer#clear()} </li>
  * <li> {@link ByteBuffer#compact()} </li>
  * <li> {@link ByteBuffer#flip()} </li>
  * <li> {@link ByteBuffer#mark()} </li>
  * </ol>
- * </p>
  */
 public interface Transport extends Endpoint
 {
@@ -216,17 +216,42 @@ public interface Transport extends Endpoint
 
     int getRemoteMaxFrameSize();
 
+    /**
+     * Gets the local channel-max value to be advertised to the remote peer
+     *
+     * @return the local channel-max value
+     * @see #setChannelMax(int)
+     */
     int getChannelMax();
 
-    void setChannelMax(int n);
+    /**
+     * Set the local value of channel-max, to be advertised to the peer on the
+     * <a href="http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html#type-open">
+     * Open frame</a> emitted by the transport.
+     *
+     * The remote peers advertised channel-max can be observed using {@link #getRemoteChannelMax()}.
+     *
+     * @param channelMax the local channel-max to advertise to the peer, in range [0 - 2^16).
+     * @throws IllegalArgumentException if the value supplied is outside range [0 - 2^16).
+     */
+    void setChannelMax(int channelMax);
 
+    /**
+     * Gets the remote value of channel-max, as advertised by the peer on its
+     * <a href="http://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html#type-open">
+     * Open frame</a>.
+     *
+     * The local peers advertised channel-max can be observed using {@link #getChannelMax()}.
+     *
+     * @return the remote channel-max value
+     */
     int getRemoteChannelMax();
 
     ErrorCondition getCondition();
 
     /**
      *
-     * @param local idle timeout in milliseconds
+     * @param timeout local idle timeout in milliseconds
      */
     void setIdleTimeout(int timeout);
     /**
@@ -245,4 +270,16 @@ public interface Transport extends Endpoint
     long getFramesInput();
 
     long getFramesOutput();
+
+    /**
+     * Configure whether a synthetic Flow event should be emitted when messages are sent,
+     * reflecting a change in the credit level on the link that may prompt other action.
+     *
+     * Defaults to true.
+     *
+     * @param emitFlowEventOnSend true if a flow event should be emitted, false otherwise
+     */
+    void setEmitFlowEventOnSend(boolean emitFlowEventOnSend);
+
+    boolean isEmitFlowEventOnSend();
 }

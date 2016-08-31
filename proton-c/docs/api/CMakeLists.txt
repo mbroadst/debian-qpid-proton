@@ -28,11 +28,7 @@ if (DOXYGEN_FOUND)
   install (DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/html/"
            DESTINATION "${PROTON_SHARE}/docs/api-c"
            COMPONENT documentation
-           ${OPTIONAL_ARG})
+           OPTIONAL)
 
-  # if (CPACK_GENERATOR STREQUAL "NSIS")
-  #     set (CPACK_NSIS_MENU_LINKS
-  #          "${QPID_INSTALL_HTMLDIR}/index.html" "Qpid C++ API Documentation"
-  #          "https://issues.apache.org/jira/browse/QPID" "Report Qpid Problem")
-  # endif (CPACK_GENERATOR STREQUAL "NSIS")
+  set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES html)
 endif (DOXYGEN_FOUND)

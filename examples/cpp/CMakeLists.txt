@@ -20,37 +20,64 @@
 find_package(ProtonCpp REQUIRED)
 
 include_directories(${ProtonCpp_INCLUDE_DIRS})
+link_libraries(${ProtonCpp_LIBRARIES})
+add_definitions(${CXX_WARNING_FLAGS})
 
+# Add a test with the correct environment to find test executables and valgrind.
+macro(add_cpp_test name)
+  if(WIN32)
+    set(test_path "$<TARGET_FILE_DIR:broker>;$<TARGET_FILE_DIR:qpid-proton>;$<TARGET_FILE_DIR:qpid-proton-cpp>")
+  else(WIN32)
+    set(test_path "$<TARGET_FILE_DIR:broker>:$ENV{PATH}")
+  endif(WIN32)
+  set(run_env ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/proton-c/env.py)
+  add_test(NAME ${name} COMMAND ${run_env} "PATH=${test_path}" ${VALGRIND_ENV} -- ${ARGN})
+endmacro()
+
+# Single-threaded examples that work on C++03
 foreach(example
     broker
     helloworld
-    helloworld_blocking
     helloworld_direct
     simple_recv
     simple_send
+    scheduled_send_03
     direct_recv
     direct_send
-    sync_client
     client
     server
     server_direct
-    recurring_timer
+    connection_options
+    queue_browser
+    selected_recv
+    flow_control
+    ssl
+    ssl_client_cert
+    service_bus
     encode_decode)
   add_executable(${example} ${example}.cpp)
-  target_link_libraries(${example} ${ProtonCpp_LIBRARIES})
-  set_source_files_properties(${example}.cpp PROPERTIES COMPILE_FLAGS "${CXX_WARNING_FLAGS}")
 endforeach()
 
-set(env_py "${CMAKE_SOURCE_DIR}/proton-c/env.py")
-set(test_bin_dir "$<TARGET_FILE_DIR:broker>")
-if (WIN32)
-  # Ignore existing path (usualy containting spaces, escape chars).
-  # Choose just enough path for Windows, ';' separated.
-  set(test_path "${test_bin_dir}" "$<TARGET_FILE_DIR:qpid-proton>" "$<TARGET_FILE_DIR:qpid-proton-cpp>")
-else(WIN32)
-  # ':' separated path with test_bin_dir first.
-  set(test_path "${test_bin_dir}:$ENV{PATH}")
-endif(WIN32)
+if(HAS_CPP11)
+  # Single-threaded examples that require C++11
+  foreach(example
+      scheduled_send)
+    add_executable(${example} ${example}.cpp)
+  endforeach()
 
-add_test(NAME cpp_example_test
-  COMMAND ${PYTHON_EXECUTABLE} ${env_py} -- "PATH=${test_path}" "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" ${VALGRIND_ENV} ${PYTHON_EXECUTABLE} -m unittest -v example_test)
+  # Linux-only multi-threaded examples (TODO make these portable)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(container_src mt/epoll_container.cpp)
+    foreach(example
+        broker)
+      add_executable(mt_${example} mt/${example}.cpp ${container_src})
+      target_link_libraries(mt_${example} pthread)
+    endforeach()
+    add_cpp_test(cpp_mt_example_test ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/example_test.py -v MtBrokerTest)
+  endif()
+endif()
+
+add_cpp_test(cpp_container_example_test ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/example_test.py -v ContainerExampleTest)
+
+
+

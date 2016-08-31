@@ -21,66 +21,82 @@
 
 #include "options.hpp"
 
-#include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
-#include "proton/link.hpp"
-#include "proton/value.hpp"
+#include <proton/connection.hpp>
+#include <proton/default_container.hpp>
+#include <proton/delivery.hpp>
+#include <proton/messaging_handler.hpp>
+#include <proton/link.hpp>
+#include <proton/message_id.hpp>
+#include <proton/value.hpp>
 
 #include <iostream>
 #include <map>
 
-
+#include "fake_cpp11.hpp"
 
 class simple_recv : public proton::messaging_handler {
   private:
-    proton::url url;
-    proton::counted_ptr<proton::receiver> receiver;
-    int expected;
-    int received;
+    std::string url;
+    std::string user;
+    std::string password;
+    proton::receiver receiver;
+    uint64_t expected;
+    uint64_t received;
+
   public:
+    simple_recv(const std::string &s, const std::string &u, const std::string &p, int c) :
+        url(s), user(u), password(p), expected(c), received(0) {}
 
-    simple_recv(const std::string &s, int c) : url(s), expected(c), received(0) {}
-
-    void on_start(proton::event &e) {
-        receiver = e.container().open_receiver(url).ptr();
+    void on_container_start(proton::container &c) OVERRIDE {
+        proton::connection_options co;
+        if (!user.empty()) co.user(user);
+        if (!password.empty()) co.password(password);
+        receiver = c.open_receiver(url, co);
         std::cout << "simple_recv listening on " << url << std::endl;
     }
 
-    void on_message(proton::event &e) {
-        proton::message& msg = e.message();
-        proton::value id = msg.id();
-        if (id.type() == proton::ULONG) {
-            if (id.get<int>() < received)
-                return; // ignore duplicate
+    void on_message(proton::delivery &d, proton::message &msg) OVERRIDE {
+        if (proton::get<uint64_t>(msg.id()) < received) {
+            return; // Ignore duplicate
         }
+
         if (expected == 0 || received < expected) {
             std::cout << msg.body() << std::endl;
             received++;
+
             if (received == expected) {
-                e.receiver().close();
-                e.connection().close();
+                d.receiver().close();
+                d.connection().close();
             }
         }
     }
 };
 
 int main(int argc, char **argv) {
-    // Command line options
     std::string address("127.0.0.1:5672/examples");
+    std::string user;
+    std::string password;
     int message_count = 100;
-    options opts(argc, argv);
+    example::options opts(argc, argv);
+
     opts.add_value(address, 'a', "address", "connect to and receive from URL", "URL");
     opts.add_value(message_count, 'm', "messages", "receive COUNT messages", "COUNT");
+    opts.add_value(user, 'u', "user", "authenticate as USER", "USER");
+    opts.add_value(password, 'p', "password", "authenticate with PASSWORD", "PASSWORD");
+
 
     try {
         opts.parse();
-        simple_recv recv(address, message_count);
-        proton::container(recv).run();
+
+        simple_recv recv(address, user, password, message_count);
+        proton::default_container(recv).run();
+
         return 0;
-    } catch (const bad_option& e) {
+    } catch (const example::bad_option& e) {
         std::cout << opts << std::endl << e.what() << std::endl;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

@@ -17,23 +17,61 @@
  * under the License.
  */
 
-#include "uuid.hpp"
+#include "types_internal.hpp"
+
+#include "proton/uuid.hpp"
+#include "proton/types_fwd.hpp"
 
 #include <cstdlib>
 #include <ctime>
 #include <sstream>
 #include <iomanip>
 
+#ifdef WIN32
+#include <process.h>
+#define GETPID _getpid
+#else
+#include <unistd.h>
+#define GETPID getpid
+#endif
+
 namespace proton {
 
-uuid::uuid() {
-    static bool seeded = false;
-    if (!seeded) {
-        std::srand(std::time(0)); // use current time as seed for random generator
-        seeded = true;
+namespace {
+
+
+// Seed the random number generated once at startup.
+struct seed {
+    seed() {
+        // A hash of time and PID, time alone is a bad seed as programs started
+        // within the same second will get the same seed.
+        long secs = time(0);
+        long pid = GETPID();
+        std::srand(((secs*181)*((pid-83)*359))%104729);
     }
+} seed_;
+
+}
+
+uuid uuid::copy() {
+    uuid u;
+    std::fill(u.begin(), u.end(), 0);
+    return u;
+}
+
+uuid uuid::copy(const char* bytes) {
+    uuid u;
+    if (bytes)
+        std::copy(bytes, bytes + u.size(), u.begin());
+    else
+        std::fill(u.begin(), u.end(), 0);
+    return u;
+}
+
+uuid uuid::random() {
+    uuid bytes;
     int r = std::rand();
-    for (size_t i = 0; i < sizeof(bytes); ++i ) {
+    for (size_t i = 0; i < bytes.size(); ++i ) {
         bytes[i] = r & 0xFF;
         r >>= 8;
         if (!r) r = std::rand();
@@ -44,15 +82,28 @@ uuid::uuid() {
 
     // From RFC4122, the top two bits of byte 8 get set to 01
     bytes[8] = (bytes[8] & 0x3F) | 0x80;
+    return bytes;
 }
 
-std::string uuid::str() {
-    // UUID standard format: 8-4-4-4-12 (36 chars, 32 alphanumeric and 4 hypens)
+/// UUID standard format: 8-4-4-4-12 (36 chars, 32 alphanumeric and 4 hypens)
+std::ostream& operator<<(std::ostream& o, const uuid& u) {
+    ios_guard restore_flags(o);
+    o << std::hex << std::setfill('0');
+    static const int segments[] = {4,2,2,2,6}; // 1 byte is 2 hex chars.
+    const uint8_t *p = reinterpret_cast<const uint8_t*>(u.begin());
+    for (size_t i = 0; i < sizeof(segments)/sizeof(segments[0]); ++i) {
+        if (i > 0)
+            o << '-';
+        for (int j = 0; j < segments[i]; ++j) {
+            o << std::setw(2) << printable_byte(*(p++));
+        }
+    }
+    return o;
+}
+
+std::string uuid::str() const {
     std::ostringstream s;
-    s << std::hex << std::setw(2) << std::setfill('0');
-    s << b(0) << b(1) << b(2) << b(3);
-    s << '-' << b(4) << b(5) << '-' << b(6) << b(7) << '-' << b(8) << b(9);
-    s << '-' << b(10) << b(11) << b(12) << b(13) << b(14) << b(15);
+    s << *this;
     return s.str();
 }
 

@@ -18,13 +18,10 @@
  * under the License.
  *
  */
-
-#include "proton/acceptor.hpp"
-#include "proton/error.hpp"
-#include "msg.hpp"
+#include "acceptor.hpp"
 
 namespace proton {
 
-void acceptor::close() { pn_acceptor_close(pn_cast(this)); }
+void acceptor::close() { pn_acceptor_close(pn_object()); }
 
 }

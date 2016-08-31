@@ -22,40 +22,115 @@
  *
  */
 
-#include "proton/counted.hpp"
-#include "proton/pn_unique_ptr.hpp"
-#include "proton/reactor.h"
-#include "proton/session.hpp"
+#include "proton/connection.hpp"
+#include "proton/container.hpp"
+#include "proton/io/connection_engine.hpp"
+#include "proton/event_loop.hpp"
+#include "proton/listen_handler.hpp"
+#include "proton/message.hpp"
+#include "proton/internal/pn_unique_ptr.hpp"
 
-#include <proton/message.h>
+#include "proton/io/link_namer.hpp"
+
+#include "proton_handler.hpp"
+
+struct pn_session_t;
+struct pn_event_t;
+struct pn_reactor_t;
+struct pn_record_t;
+struct pn_acceptor_t;
 
 namespace proton {
 
-class session;
-class handler;
-class container_impl;
+class proton_handler;
+class reactor;
 
-counted* get_context(pn_record_t*, pn_handle_t handle);
-void set_context(pn_record_t*, pn_handle_t, counted* value);
+// Base class for C++ classes that are used as proton contexts.
+// Contexts are pn_objects managed by pn reference counts, the C++ value is allocated in-place.
+class context {
+  public:
+    // identifies a context, contains a record pointer and a handle.
+    typedef std::pair<pn_record_t*, pn_handle_t> id;
 
-struct connection_context : public counted {
-    static connection_context& get(pn_connection_t* c);
+    virtual ~context();
 
-    connection_context();
-    ~connection_context();
+    // Allocate a default-constructed T as a proton object.
+    // T must be a subclass of context.
+    template <class T> static T *create() { return new(alloc(sizeof(T))) T(); }
 
-    pn_unique_ptr<class handler> handler;
-    session* default_session;   // Owned by connection
-    class container_impl* container_impl;
-    message event_message;  // re-used by messaging_adapter for performance
+    // The pn_class for a context
+    static pn_class_t* pn_class();
+
+    // Get the context identified by id as a C++ T*, return null pointer if not present.
+    template <class T> static T* ptr(id id_) {
+        return reinterpret_cast<T*>(pn_record_get(id_.first, id_.second));
+    }
+
+    // If the context is not present, create it with value x.
+    template <class T> static T& ref(id id_) {
+        T* ctx = context::ptr<T>(id_);
+        if (!ctx) {
+            ctx = create<T>();
+            pn_record_def(id_.first, id_.second, pn_class());
+            pn_record_set(id_.first, id_.second, ctx);
+            pn_decref(ctx);
+        }
+        return *ctx;
+    }
+
+  private:
+    static void *alloc(size_t n);
 };
 
-class container;
-void container_context(pn_reactor_t *, container&);
-container& container_context(pn_reactor_t *);
+// Connection context used by all connections.
+class connection_context : public context {
+  public:
+    connection_context() : container(0), default_session(0), link_gen(0), collector(0) {}
 
-void event_context(pn_event_t *pn_event, pn_message_t *m);
-pn_message_t *event_context(pn_event_t *pn_event);
+    class container* container;
+    pn_session_t *default_session; // Owned by connection.
+    message event_message;      // re-used by messaging_adapter for performance.
+    io::link_namer* link_gen;      // Link name generator.
+    pn_collector_t* collector;
+
+    internal::pn_unique_ptr<proton_handler> handler;
+    internal::pn_unique_ptr<class event_loop> event_loop;
+
+    static connection_context& get(pn_connection_t *c) { return ref<connection_context>(id(c)); }
+    static connection_context& get(const connection& c) { return ref<connection_context>(id(c)); }
+
+  protected:
+    static context::id id(pn_connection_t*);
+    static context::id id(const connection& c);
+};
+
+void container_context(const reactor&, container&);
+
+class container_context {
+  public:
+    static void set(const reactor& r, container& c);
+    static container& get(pn_reactor_t*);
+};
+
+class listener_context : public context {
+  public:
+    static listener_context& get(pn_acceptor_t* c);
+    listener_context() : listen_handler_(0), ssl(false) {}
+    connection_options  get_options() { return listen_handler_->on_accept(); }
+    class listen_handler* listen_handler_;
+    bool ssl;
+};
+
+class link_context : public context {
+  public:
+    static link_context& get(pn_link_t* l);
+    link_context() : credit_window(10), auto_accept(true), auto_settle(true), draining(false), pending_credit(0) {}
+    int credit_window;
+    bool auto_accept;
+    bool auto_settle;
+    bool draining;
+    uint32_t pending_credit;
+};
 
 }
 

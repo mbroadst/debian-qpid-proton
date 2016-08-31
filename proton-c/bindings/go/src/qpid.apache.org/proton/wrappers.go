@@ -168,10 +168,12 @@ type Endpoint interface {
 	RemoteCondition() Condition
 	// Human readable name
 	String() string
+	// Human readable endpoint type "link", "session" etc.
+	Type() string
 }
 
-// CloseError sets an error condition on an endpoint and closes the endpoint
-// if not already closed
+// CloseError sets an error condition (if err != nil) on an endpoint and closes
+// the endpoint if not already closed
 func CloseError(e Endpoint, err error) {
 	if err != nil {
 		e.Condition().SetError(err)
@@ -257,6 +259,14 @@ func (l Link) String() string {
 	}
 }
 
+func (l Link) Type() string {
+	if l.IsSender() {
+		return "link(sender)"
+	} else {
+		return "link(receiver)"
+	}
+}
+
 func cPtr(b []byte) *C.char {
 	if len(b) == 0 {
 		return nil
@@ -283,6 +293,10 @@ func (s Session) Receiver(name string) Link {
 // Unique (per process) string identifier for a connection, useful for debugging.
 func (c Connection) String() string {
 	return fmt.Sprintf("%x", c.pn)
+}
+
+func (c Connection) Type() string {
+	return "connection"
 }
 
 // Head functions don't follow the normal naming conventions so missed by the generator.
@@ -313,12 +327,14 @@ func (s Session) String() string {
 	return fmt.Sprintf("%s/%p", s.Connection(), s.pn)
 }
 
+func (s Session) Type() string { return "session" }
+
 // Error returns an instance of amqp.Error or nil.
 func (c Condition) Error() error {
 	if c.IsNil() || !c.IsSet() {
 		return nil
 	}
-	return amqp.Error{c.Name(), c.Description()}
+	return amqp.Error{Name: c.Name(), Description: c.Description()}
 }
 
 // Set a Go error into a condition.

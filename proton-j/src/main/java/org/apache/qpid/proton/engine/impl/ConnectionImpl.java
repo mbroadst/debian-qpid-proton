@@ -61,7 +61,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
     private DeliveryImpl _transportWorkTail;
     private int _transportWorkSize = 0;
     private String _localContainerId = "";
-    private String _localHostname = "";
+    private String _localHostname;
     private String _remoteContainer;
     private String _remoteHostname;
     private Symbol[] _offeredCapabilities;
@@ -79,7 +79,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
 
     /**
      * @deprecated This constructor's visibility will be reduced to the default scope in a future release.
-     * Client code outside this module should use a {@link EngineFactory} instead
+     * Client code outside this module should use {@link org.apache.qpid.proton.engine.Connection.Factory#create()} instead.
      */
     @Deprecated public ConnectionImpl()
     {
@@ -493,7 +493,7 @@ public class ConnectionImpl extends EndpointImpl implements ProtonJConnection
         return _transport;
     }
 
-    private class WorkSequence implements Iterator<DeliveryImpl>
+    private static class WorkSequence implements Iterator<DeliveryImpl>
     {
         private DeliveryImpl _next;
 

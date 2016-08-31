@@ -1,5 +1,5 @@
-#ifndef PROTON_CPP_LINK_H
-#define PROTON_CPP_LINK_H
+#ifndef PROTON_LINK_HPP
+#define PROTON_LINK_HPP
 
 /*
  *
@@ -21,12 +21,17 @@
  * under the License.
  *
  */
-#include "proton/endpoint.hpp"
-#include "proton/export.hpp"
-#include "proton/message.hpp"
-#include "proton/terminus.hpp"
-#include "proton/types.h"
-#include "proton/facade.hpp"
+
+#include "./endpoint.hpp"
+#include "./internal/export.hpp"
+#include "./message.hpp"
+#include "./source.hpp"
+#include "./target.hpp"
+#include "./internal/object.hpp"
+#include "./sender_options.hpp"
+#include "./receiver_options.hpp"
+
+#include <proton/types.h>
 
 #include <string>
 
@@ -34,63 +39,80 @@ namespace proton {
 
 class sender;
 class receiver;
+class error_condition;
+class link_context;
+class proton_event;
+class messaging_adapter;
+class proton_handler;
+class delivery;
+class connection;
+class container;
+class session;
+class sender_iterator;
+class receiver_iterator;
 
-/** Messages are transferred across a link. Base class for sender, receiver. */
-class link : public counted_facade<pn_link_t, link, endpoint>
-{
+/// A named channel for sending or receiving messages.  It is the base
+/// class for sender and receiver.
+class
+PN_CPP_CLASS_EXTERN link : public internal::object<pn_link_t> , public endpoint {
+    /// @cond INTERNAL
+    link(pn_link_t* l) : internal::object<pn_link_t>(l) {}
+    /// @endcond
+
   public:
-    /** Locally open the link, not complete till messaging_handler::on_link_opened or
-     * proton_handler::link_remote_open
-     */
-    PN_CPP_EXTERN void open();
+    /// Create an empty link.
+    link() : internal::object<pn_link_t>(0) {}
 
-    /** Locally close the link, not complete till messaging_handler::on_link_closed or
-     * proton_handler::link_remote_close
-     */
+    PN_CPP_EXTERN bool uninitialized() const;
+    PN_CPP_EXTERN bool active() const;
+    PN_CPP_EXTERN bool closed() const;
+
+    PN_CPP_EXTERN class error_condition error() const;
+
     PN_CPP_EXTERN void close();
+    PN_CPP_EXTERN void close(const error_condition&);
 
-    /** Return sender if this link is a sender, 0 if not. */
-    PN_CPP_EXTERN class sender* sender();
-    PN_CPP_EXTERN const class sender* sender() const;
+    /// Suspend the link without closing it.  A suspended link may be
+    /// reopened with the same or different link options if supported
+    /// by the peer. A suspended durable subscription becomes inactive
+    /// without cancelling it.
+    // XXX Should take error condition
+    PN_CPP_EXTERN void detach();
 
-    /** Return receiver if this link is a receiver, 0 if not. */
-    PN_CPP_EXTERN class receiver* receiver();
-    PN_CPP_EXTERN const class receiver* receiver() const;
-
-    /** Credit available on the link */
+    /// Credit available on the link.
     PN_CPP_EXTERN int credit() const;
 
-    /** Local source of the link. */
-    PN_CPP_EXTERN terminus& source() const;
-    /** Local target of the link. */
-    PN_CPP_EXTERN terminus& target() const;
-    /** Remote source of the link. */
-    PN_CPP_EXTERN terminus& remote_source() const;
-    /** Remote target of the link. */
-    PN_CPP_EXTERN terminus& remote_target() const;
+    /// **Experimental** - True for a receiver if a drain cycle has
+    /// been started and the corresponding `on_receiver_drain_finish`
+    /// event is still pending.  True for a sender if the receiver has
+    /// requested a drain of credit and the sender has unused credit.
+    ///
+    /// @see @ref receiver::drain. 
+    PN_CPP_EXTERN bool draining();
 
-    /** Link name */
+    /// Get the link name.
     PN_CPP_EXTERN std::string name() const;
 
-    /** Connection that owns this link */
-    PN_CPP_EXTERN class connection &connection() const;
+    /// The container for this link.
+    PN_CPP_EXTERN class container &container() const;
 
-    /** Session that owns this link */
-    PN_CPP_EXTERN class session &session() const;
+    /// The connection that owns this link.
+    PN_CPP_EXTERN class connection connection() const;
 
-    /** Set a custom handler for this link. */
-    PN_CPP_EXTERN void handler(class handler &);
+    /// The session that owns this link.
+    PN_CPP_EXTERN class session session() const;
 
-    /** Unset any custom handler */
-    PN_CPP_EXTERN void detach_handler();
+  protected:
+    /// @cond INTERNAL
+    
+    // Initiate the AMQP attach frame.
+    void attach();
 
-    /** Get the endpoint state */
-    PN_CPP_EXTERN endpoint::state state() const;
+  friend class internal::factory<link>;
+
+    /// @endcond
 };
 
 }
 
-#include "proton/sender.hpp"
-#include "proton/receiver.hpp"
-
-#endif  /*!PROTON_CPP_LINK_H*/
+#endif // PROTON_LINK_HPP

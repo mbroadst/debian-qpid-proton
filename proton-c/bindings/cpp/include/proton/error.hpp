@@ -1,5 +1,5 @@
-#ifndef PROTON_CPP_EXCEPTIONS_H
-#define PROTON_CPP_EXCEPTIONS_H
+#ifndef PROTON_ERROR_HPP
+#define PROTON_ERROR_HPP
 
 /*
  *
@@ -21,18 +21,39 @@
  * under the License.
  *
  */
+
+#include "./internal/config.hpp"
+#include "./internal/export.hpp"
+
 #include <stdexcept>
 #include <string>
-#include "proton/export.hpp"
 
 namespace proton {
 
-/** Functions in the proton namespace throw a subclass of proton::error on error. */
-struct error : public std::runtime_error { PN_CPP_EXTERN explicit error(const std::string&) throw(); };
+/// The base Proton error.
+///
+/// All exceptions thrown from functions in the proton namespace are
+/// subclasses of proton::error.
+struct
+PN_CPP_CLASS_EXTERN error : public std::runtime_error {
+    /// Construct the error with a message.
+    PN_CPP_EXTERN explicit error(const std::string&);
+};
 
-/** Raised if timeout expires */
-struct timeout_error : public error { PN_CPP_EXTERN explicit timeout_error(const std::string&) throw(); };
+/// An operation timed out.
+struct
+PN_CPP_CLASS_EXTERN timeout_error : public error {
+    /// Construct the error with a message.
+    PN_CPP_EXTERN explicit timeout_error(const std::string&);
+};
 
-}
+/// An error converting between AMQP and C++ data.
+struct
+PN_CPP_CLASS_EXTERN conversion_error : public error {
+    /// Construct the error with a message.
+    PN_CPP_EXTERN explicit conversion_error(const std::string&);
+};
 
-#endif  /*!PROTON_CPP_EXCEPTIONS_H*/
+} // proton
+
+#endif // PROTON_ERROR_HPP

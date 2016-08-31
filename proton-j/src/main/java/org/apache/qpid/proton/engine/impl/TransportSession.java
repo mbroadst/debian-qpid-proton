@@ -282,6 +282,10 @@ class TransportSession
             Binary deliveryTag = transfer.getDeliveryTag();
             delivery = receiver.delivery(deliveryTag.getArray(), deliveryTag.getArrayOffset(),
                                                       deliveryTag.getLength());
+            UnsignedInteger messageFormat = transfer.getMessageFormat();
+            if(messageFormat != null) {
+                delivery.setMessageFormat(messageFormat.intValue());
+            }
             TransportDelivery transportDelivery = new TransportDelivery(_incomingDeliveryId, delivery, transportReceiver);
             delivery.setTransportDelivery(transportDelivery);
             _unsettledIncomingDeliveriesById.put(_incomingDeliveryId, delivery);
@@ -321,7 +325,7 @@ class TransportSession
             delivery.getLink().getTransportLink().decrementLinkCredit();
             delivery.getLink().getTransportLink().incrementDeliveryCount();
         }
-        if(Boolean.TRUE == transfer.getSettled())
+        if(Boolean.TRUE.equals(transfer.getSettled()))
         {
             delivery.setRemoteSettled(true);
         }

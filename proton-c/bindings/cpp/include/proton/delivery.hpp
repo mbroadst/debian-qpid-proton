@@ -1,5 +1,5 @@
-#ifndef PROTON_CPP_DELIVERY_H
-#define PROTON_CPP_DELIVERY_H
+#ifndef PROTON_DELIVERY_HPP
+#define PROTON_DELIVERY_HPP
 
 /*
  *
@@ -21,95 +21,53 @@
  * under the License.
  *
  */
-#include "proton/export.hpp"
-#include "proton/facade.hpp"
 
-#include "proton/delivery.h"
-#include "proton/disposition.h"
+#include "./internal/export.hpp"
+#include "./internal/object.hpp"
+#include "./transfer.hpp"
+
+#include <proton/delivery.h>
+#include <proton/disposition.h>
 
 namespace proton {
 
-/** delivery status of a message */
-class delivery : public counted_facade<pn_delivery_t, delivery> {
+class receiver;
+
+/// A received message.
+/// 
+/// A delivery attempt can fail. As a result, a particular message may
+/// correspond to multiple deliveries.
+class delivery : public transfer {
+    /// @cond INTERNAL
+    delivery(pn_delivery_t* d);
+    /// @endcond
+
   public:
-    /** Delivery state of a message */
-    enum state {
-        NONE = 0, ///< Unknown state
-        RECEIVED = PN_RECEIVED, ///< Received but not yet settled
-        ACCEPTED = PN_ACCEPTED, ///< Settled as accepted
-        REJECTED = PN_REJECTED, ///< Settled as rejected
-        RELEASED = PN_RELEASED, ///< Settled as released
-        MODIFIED = PN_MODIFIED  ///< Settled as modified
-    };  // AMQP spec 3.4 delivery State
+    delivery() {}
 
-    /** Return true if the delivery has been settled. */
-    PN_CPP_EXTERN bool settled() const;
+    /// Return the receiver for this delivery.
+    PN_CPP_EXTERN class receiver receiver() const;
 
-    /** Settle the delivery, informs the remote end. */
-    PN_CPP_EXTERN void settle();
+    // XXX ATM the following don't reflect the differing behaviors we
+    // get from the different delivery modes. - Deferred
+    
+    /// Settle with ACCEPTED state.
+    PN_CPP_EXTERN void accept();
 
-    /** Set the local state of the delivery. */
-    PN_CPP_EXTERN void update(delivery::state state);
+    /// Settle with REJECTED state.
+    PN_CPP_EXTERN void reject();
 
-    /** update and settle a delivery with the given delivery::state */
-    PN_CPP_EXTERN void settle(delivery::state s);
+    /// Settle with RELEASED state.
+    PN_CPP_EXTERN void release();
 
-    /** settle with ACCEPTED state */
-    PN_CPP_EXTERN void accept() { settle(ACCEPTED); }
+    /// Settle with MODIFIED state.
+    PN_CPP_EXTERN void modify();
 
-    /** settle with REJECTED state */
-    PN_CPP_EXTERN void reject() { settle(REJECTED); }
-
-    /** settle with REJECTED state */
-    PN_CPP_EXTERN void release() { settle(RELEASED); }
-
-    /** settle with MODIFIED state */
-    PN_CPP_EXTERN void modify() { settle(MODIFIED); }
-
-    /**
-     * Check if a delivery is readable.
-     *
-     * A delivery is considered readable if it is the current delivery on
-     * an incoming link.
-     */
-    PN_CPP_EXTERN bool partial() const;
-
-    /**
-     * Check if a delivery is writable.
-     *
-     * A delivery is considered writable if it is the current delivery on
-     * an outgoing link, and the link has positive credit.
-     */
-    PN_CPP_EXTERN bool writable() const;
-
-    /**
-     * Check if a delivery is readable.
-     *
-     * A delivery is considered readable if it is the current delivery on
-     * an incoming link.
-     */
-    PN_CPP_EXTERN bool readable() const;
-
-    /**
-     * Check if a delivery is updated.
-     *
-     * A delivery is considered updated whenever the peer communicates a
-     * new disposition for the delivery. Once a delivery becomes updated,
-     * it will remain so until clear() is called.
-     */
-    PN_CPP_EXTERN bool updated() const;
-
-    /**
-     * Clear the updated flag for a delivery.
-     */
-    PN_CPP_EXTERN void clear();
-
-    /**
-     * Get the remote disposition state for a delivery.
-     */
-    PN_CPP_EXTERN state remote_state() const;
+    /// @cond INTERNAL
+  friend class internal::factory<delivery>;
+    /// @endcond
 };
 
-}
+} // proton
 
-#endif  /*!PROTON_CPP_DELIVERY_H*/
+#endif // PROTON_DELIVERY_HPP

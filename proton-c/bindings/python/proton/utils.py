@@ -76,6 +76,8 @@ class BlockingSender(BlockingLink):
     def send(self, msg, timeout=False, error_states=None):
         delivery = self.link.send(msg)
         self.connection.wait(lambda: _is_settled(delivery), msg="Sending on sender %s" % self.link.name, timeout=timeout)
+        if delivery.link.snd_settle_mode != Link.SND_SETTLED:
+            delivery.settle()
         bad = error_states
         if bad is None:
             bad = [Delivery.REJECTED, Delivery.RELEASED]
@@ -131,6 +133,10 @@ class BlockingReceiver(BlockingLink):
         if credit: receiver.flow(credit)
         self.fetcher = fetcher
 
+    def __del__(self):
+        self.fetcher = None
+        self.link.handler = None
+
     def receive(self, timeout=False):
         if not self.fetcher:
             raise Exception("Can't call receive on this receiver as a handler was provided")
@@ -176,9 +182,9 @@ class LinkDetached(LinkException):
 class ConnectionClosed(ConnectionException):
     def __init__(self, connection):
         self.connection = connection
-        txt = "Connection %s closed" % self.url
-        if event.connection.remote_condition:
-            txt += " due to: %s" % event.connection.remote_condition
+        txt = "Connection %s closed" % connection.hostname
+        if connection.remote_condition:
+            txt += " due to: %s" % connection.remote_condition
             self.condition = connection.remote_condition.name
         else:
             txt += " by peer"
@@ -190,14 +196,14 @@ class BlockingConnection(Handler):
     """
     A synchronous style connection wrapper.
     """
-    def __init__(self, url, timeout=None, container=None, ssl_domain=None, heartbeat=None):
+    def __init__(self, url, timeout=None, container=None, ssl_domain=None, heartbeat=None, **kwargs):
         self.disconnected = False
-        self.timeout = timeout
+        self.timeout = timeout or 60
         self.container = container or Container()
         self.container.timeout = self.timeout
         self.container.start()
         self.url = Url(url).defaults()
-        self.conn = self.container.connect(url=self.url, handler=self, ssl_domain=ssl_domain, reconnect=False, heartbeat=heartbeat)
+        self.conn = self.container.connect(url=self.url, handler=self, ssl_domain=ssl_domain, reconnect=False, heartbeat=heartbeat, **kwargs)
         self.wait(lambda: not (self.conn.state & Endpoint.REMOTE_UNINIT),
                   msg="Opening connection")
 
@@ -217,8 +223,12 @@ class BlockingConnection(Handler):
 
     def close(self):
         self.conn.close()
-        self.wait(lambda: not (self.conn.state & Endpoint.REMOTE_ACTIVE),
-                  msg="Closing connection")
+        try:
+            self.wait(lambda: not (self.conn.state & Endpoint.REMOTE_ACTIVE),
+                      msg="Closing connection")
+        finally:
+            self.conn = None
+            self.container = None
 
     def _is_closed(self):
         return self.conn.state & (Endpoint.LOCAL_CLOSED | Endpoint.REMOTE_CLOSED)
@@ -251,7 +261,8 @@ class BlockingConnection(Handler):
             self.container.stop()
             self.conn.handler = None # break cyclical reference
         if self.disconnected and not self._is_closed():
-            raise ConnectionException("Connection %s disconnected" % self.url)
+            raise ConnectionException(
+                "Connection %s disconnected: %s" % (self.url, self.disconnected))
 
     def on_link_remote_close(self, event):
         if event.link.state & Endpoint.LOCAL_ACTIVE:
@@ -270,7 +281,7 @@ class BlockingConnection(Handler):
         self.on_transport_closed(event)
 
     def on_transport_closed(self, event):
-        self.disconnected = True
+        self.disconnected = event.transport.condition or "unknown"
 
 class AtomicCount(object):
     def __init__(self, start=0, step=1):

@@ -1,5 +1,5 @@
-#ifndef PROTON_CPP_SENDER_H
-#define PROTON_CPP_SENDER_H
+#ifndef PROTON_SENDER_HPP
+#define PROTON_SENDER_HPP
 
 /*
  *
@@ -21,29 +21,90 @@
  * under the License.
  *
  */
-#include "proton/export.hpp"
-#include "proton/delivery.hpp"
-#include "proton/link.hpp"
-#include "proton/message.hpp"
 
-#include "proton/types.h"
+#include "./internal/export.hpp"
+#include "./link.hpp"
+#include "./message.hpp"
+#include "./tracker.hpp"
+
+#include <proton/types.h>
+
 #include <string>
 
 struct pn_connection_t;
 
 namespace proton {
+template <class T> class thread_safe;
 
-/// A sending link
-class sender : public counted_facade<pn_link_t, sender, link>
-{
+/// A channel for sending messages.
+class
+PN_CPP_CLASS_EXTERN sender : public link {
+    /// @cond INTERNAL
+    PN_CPP_EXTERN sender(pn_link_t* s);
+    /// @endcond
+
   public:
-    /// Send a message on the link.
-    PN_CPP_EXTERN delivery& send(const message &m);
+    /// Create an empty sender.
+    sender() {}
 
-    PN_CPP_EXTERN sender* cast(pn_type*);
+    /// Open the sender.
+    ///
+    /// @see endpoint_lifecycle
+    PN_CPP_EXTERN void open();
+
+    /// @copydoc open
+    PN_CPP_EXTERN void open(const sender_options &opts);
+
+    /// Send a message on the sender.
+    PN_CPP_EXTERN tracker send(const message &m);
+
+    /// Get the source node.
+    PN_CPP_EXTERN class source source() const;
+
+    /// Get the target node.
+    PN_CPP_EXTERN class target target() const;
+
+    /// **Experimental** - Return all unused credit to the receiver in
+    /// response to a drain request.  Has no effect unless there has
+    /// been a drain request and there is remaining credit to use or
+    /// return.
+    ///
+    /// @see receiver::drain
+    PN_CPP_EXTERN void return_credit();
+
+    /// @cond INTERNAL
+  friend class internal::factory<sender>;
+  friend class sender_iterator;
+  friend class thread_safe<sender>;
+    /// @endcond
 };
 
+/// @cond INTERNAL
+
+/// An iterator of senders.
+class sender_iterator : public internal::iter_base<sender, sender_iterator> {
+    sender_iterator(sender snd, pn_session_t* s = 0) :
+        internal::iter_base<sender, sender_iterator>(snd), session_(s) {}
+
+  public:
+    /// Create an iterator of senders.
+    sender_iterator() :
+        internal::iter_base<sender, sender_iterator>(0), session_(0) {}
+    /// Advance to the next sender.
+    PN_CPP_EXTERN sender_iterator operator++();
+
+  private:
+    pn_session_t* session_;
+
+  friend class connection;
+  friend class session;
+};
+
+/// A range of senders.
+typedef internal::iter_range<sender_iterator> sender_range;
+
+/// @endcond
 
 }
 
-#endif  /*!PROTON_CPP_SENDER_H*/
+#endif // PROTON_SENDER_HPP

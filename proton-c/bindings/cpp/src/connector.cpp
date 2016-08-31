@@ -19,44 +19,88 @@
  *
  */
 
+#include "connector.hpp"
+
 #include "proton/connection.hpp"
 #include "proton/transport.hpp"
 #include "proton/container.hpp"
-#include "proton/event.hpp"
-#include "proton/connection.h"
+#include "proton/reconnect_timer.hpp"
+#include "proton/task.hpp"
+#include "proton/sasl.hpp"
 #include "proton/url.hpp"
 
-#include "connector.hpp"
+#include "container_impl.hpp"
+#include "proton_bits.hpp"
+#include "proton_event.hpp"
+
+#include <proton/connection.h>
+#include <proton/transport.h>
 
 namespace proton {
 
-connector::connector(connection &c) : connection_(&c) {}
+connector::connector(connection&c, const connection_options& options, const url& a) :
+    connection_(c), options_(options), address_(a), reconnect_timer_(0)
+{}
 
-connector::~connector() {}
+connector::~connector() { delete reconnect_timer_; }
 
-void connector::address(const url &a) {
-    address_ = a;
+void connector::reconnect_timer(const class reconnect_timer &rt) {
+    delete reconnect_timer_;
+    reconnect_timer_ = new class reconnect_timer(rt);
 }
 
 void connector::connect() {
-    pn_connection_t *conn = pn_cast(connection_);
-    pn_connection_set_container(conn, connection_->container().id().c_str());
-    pn_connection_set_hostname(conn, address_.host_port().c_str());
+    pn_transport_t *pnt = pn_transport();
+    transport t(make_wrapper(pnt));
+    pn_transport_bind(pnt, unwrap(connection_));
+    pn_decref(pnt);
+    // Apply options to the new transport.
+    options_.apply_bound(connection_);
 }
 
-void connector::on_connection_local_open(event &e) {
+void connector::on_connection_local_open(proton_event &) {
     connect();
 }
 
-void connector::on_connection_remote_open(event &e) {}
-
-void connector::on_connection_init(event &e) {
+void connector::on_connection_remote_open(proton_event &) {
+    if (reconnect_timer_) {
+        reconnect_timer_->reset();
+    }
 }
 
-void connector::on_transport_closed(event &e) {
-    // TODO: prepend with reconnect logic
-    pn_connection_release(pn_cast(connection_));
+void connector::on_connection_init(proton_event &) {
+}
+
+void connector::on_transport_tail_closed(proton_event &e) {
+    on_transport_closed(e);
+}
+
+void connector::on_transport_closed(proton_event &) {
+    if (!connection_) return;
+    if (connection_.active()) {
+        if (reconnect_timer_) {
+            pn_transport_unbind(unwrap(connection_.transport()));
+            int delay = reconnect_timer_->next_delay(timestamp::now());
+            if (delay >= 0) {
+                if (delay == 0) {
+                    // log "Disconnected, reconnecting..."
+                    connect();
+                    return;
+                }
+                else {
+                    // log "Disconnected, reconnecting in " <<  delay << " milliseconds"
+                    container_impl::schedule(connection_.container(), delay, this);
+                    return;
+                }
+            }
+        }
+    }
+    pn_connection_release(unwrap(connection_));
     connection_  = 0;
+}
+
+void connector::on_timer_task(proton_event &) {
+    connect();
 }
 
 }

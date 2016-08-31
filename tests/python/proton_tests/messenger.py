@@ -450,7 +450,8 @@ class MessengerTest(Test):
     self.client.start()
 
   def testRoute(self):
-    if not common.isSSLPresent():
+    # anonymous cipher not supported on Windows
+    if os.name == "nt" or not common.isSSLPresent():
         domain = "amqp"
     else:
         domain = "amqps"
@@ -969,7 +970,7 @@ class Pump:
         if sel.writing:
           writing.append(sel)
 
-    readable, writable, _ = select(reading, writing, [], 0)
+    readable, writable, _ = select(reading, writing, [], 0.1)
 
     count = 0
     for s in readable:
@@ -982,7 +983,6 @@ class Pump:
 
   def pump(self):
     while self.pump_once(): pass
-
 
 class SelectableMessengerTest(common.Test):
 

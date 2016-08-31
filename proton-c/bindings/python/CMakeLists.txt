@@ -23,9 +23,11 @@
 set(CMAKE_SWIG_FLAGS "-threads")
 
 include_directories (${PYTHON_INCLUDE_PATH})
-if (BUILD_WITH_CXX)
-   SET_SOURCE_FILES_PROPERTIES(cproton.i PROPERTIES CPLUSPLUS ON)
-endif (BUILD_WITH_CXX)
+
+set_source_files_properties(cproton.i PROPERTIES CPLUSPLUS NO)
+
+# Suppress warnings in swig generated code.
+set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w")
 
 list(APPEND SWIG_MODULE_cproton_EXTRA_DEPS
     ${CMAKE_SOURCE_DIR}/proton-c/include/proton/cproton.i
@@ -42,7 +44,7 @@ find_package(PythonInterp REQUIRED)
 
 if (CHECK_SYSINSTALL_PYTHON)
   execute_process(COMMAND ${PYTHON_EXECUTABLE}
-    -c "from distutils.sysconfig import get_python_lib; print get_python_lib(True)"
+    -c "from distutils.sysconfig import get_python_lib; print(get_python_lib(True))"
     OUTPUT_VARIABLE PYTHON_SITEARCH_PACKAGES_DEFAULT
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 else ()
@@ -87,12 +89,13 @@ if (EPYDOC_EXE)
    add_custom_target(docs-py COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/../../env.py --
      PYTHONPATH=${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_CURRENT_SOURCE_DIR}
      ${EPYDOC_EXE} -v --no-private --html -o ${CMAKE_CURRENT_BINARY_DIR}/html
-     ${PY_DOC_FILES})
+     ${PY_DOC_FILES}
+     DEPENDS ${SWIG_MODULE_${cproton}_REAL_NAME})
    add_dependencies(docs docs-py)
    install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/html/"
            DESTINATION "${PROTON_SHARE}/docs/api-py"
            COMPONENT documentation
-           ${OPTIONAL_ARG})
+           OPTIONAL)
 endif (EPYDOC_EXE)
 
 find_program(SPHINX_EXE sphinx-build)
@@ -105,7 +108,7 @@ if (SPHINX_EXE)
    install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/tutorial/"
            DESTINATION "${PROTON_SHARE}/docs/tutorial-py"
            COMPONENT documentation
-           ${OPTIONAL_ARG})
+           OPTIONAL)
 endif (SPHINX_EXE)
 
 install(FILES ${CPROTON_ARTIFACTS}
@@ -117,3 +120,5 @@ install(FILES ${PROTON_ARTIFACTS}
 install(TARGETS ${SWIG_MODULE_cproton_REAL_NAME}
         DESTINATION ${PYTHON_SITEARCH_PACKAGES}
         COMPONENT Python)
+
+set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "html;tutorial")

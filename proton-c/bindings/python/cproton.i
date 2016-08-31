@@ -94,6 +94,7 @@ PN_HANDLE(PNI_PYTRACER);
 
 
 // These are not used/needed in the python binding
+%ignore pn_dtag;
 %ignore pn_message_get_id;
 %ignore pn_message_set_id;
 %ignore pn_message_get_correlation_id;
@@ -233,6 +234,12 @@ bool pn_ssl_get_cipher_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZE)
 bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZE);
 %ignore pn_ssl_get_protocol_name;
 
+char* pn_ssl_get_remote_subject_subfield(pn_ssl_t *ssl, pn_ssl_cert_subject_subfield field);
+%ignore pn_ssl_get_remote_subject_subfield;
+
+int pn_ssl_get_cert_fingerprint(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZE, pn_ssl_hash_alg hash_alg);
+%ignore pn_ssl_get_cert_fingerprint;
+
 %rename(pn_ssl_get_peer_hostname) wrap_pn_ssl_get_peer_hostname;
 %inline %{
   int wrap_pn_ssl_get_peer_hostname(pn_ssl_t *ssl, char *VTEXT_OUT, size_t *VTEXT_SIZE) {
@@ -242,6 +249,7 @@ bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZ
   }
 %}
 %ignore pn_ssl_get_peer_hostname;
+
 
 %immutable PN_PYREF;
 %inline %{
@@ -338,11 +346,13 @@ bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZ
         tb = Py_None;
         Py_INCREF(tb);
       }
-      PyObject *result2 = PyObject_CallMethodObjArgs(pyh->handler, pyh->exception, exc, val, tb, NULL);
-      if (!result2) {
-        PyErr_PrintEx(true);
+      {
+        PyObject *result2 = PyObject_CallMethodObjArgs(pyh->handler, pyh->exception, exc, val, tb, NULL);
+        if (!result2) {
+          PyErr_PrintEx(true);
+        }
+        Py_XDECREF(result2);
       }
-      Py_XDECREF(result2);
       Py_XDECREF(exc);
       Py_XDECREF(val);
       Py_XDECREF(tb);
@@ -357,11 +367,13 @@ bool pn_ssl_get_protocol_name(pn_ssl_t *ssl, char *OUTPUT, size_t MAX_OUTPUT_SIZ
     pn_handler_t *chandler = pn_handler_new(pni_pydispatch, sizeof(pni_pyh_t), pni_pyh_finalize);
     pni_pyh_t *phy = pni_pyh(chandler);
     phy->handler = handler;
-    SWIG_PYTHON_THREAD_BEGIN_BLOCK;
-    phy->dispatch = PyString_FromString("dispatch");
-    phy->exception = PyString_FromString("exception");
-    Py_INCREF(phy->handler);
-    SWIG_PYTHON_THREAD_END_BLOCK;
+    {
+      SWIG_PYTHON_THREAD_BEGIN_BLOCK;
+      phy->dispatch = PyString_FromString("dispatch");
+      phy->exception = PyString_FromString("exception");
+      Py_INCREF(phy->handler);
+      SWIG_PYTHON_THREAD_END_BLOCK;
+    }
     return chandler;
   }
 

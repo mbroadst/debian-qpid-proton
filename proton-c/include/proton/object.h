@@ -33,7 +33,7 @@
 extern "C" {
 #endif
 
-typedef uintptr_t pn_handle_t;
+typedef void* pn_handle_t;
 typedef intptr_t pn_shandle_t;
 
 typedef struct pn_class_t pn_class_t;
@@ -61,9 +61,11 @@ struct pn_class_t {
   int (*inspect)(void *, pn_string_t *);
 };
 
-PN_EXTERN extern const pn_class_t *PN_OBJECT;
-PN_EXTERN extern const pn_class_t *PN_VOID;
-PN_EXTERN extern const pn_class_t *PN_WEAKREF;
+// Hack alert: Declare these as arrays so we can treat the name
+// of the single object as the address
+PN_EXTERN extern const pn_class_t PN_OBJECT[];
+PN_EXTERN extern const pn_class_t PN_VOID[];
+PN_EXTERN extern const pn_class_t PN_WEAKREF[];
 
 #define PN_CLASSDEF(PREFIX)                                               \
 static void PREFIX ## _initialize_cast(void *object) {                    \
@@ -264,9 +266,26 @@ PN_EXTERN void *pn_iterator_next(pn_iterator_t *iterator);
 
 #define PN_LEGCTX ((pn_handle_t) 0)
 
+/**
+   PN_HANDLE is a trick to define a unique identifier by using the address of a static variable.
+   You MUST NOT use it in a .h file, since it must be defined uniquely in one compilation unit.
+   Your .h file can provide access to the handle (if needed) via a function. For example:
+
+       /// my_thing.h
+       pn_handle_t get_my_thing(void);
+
+       /// my_thing.c
+       PN_HANDLE(MY_THING);
+       pn_handle_t get_my_thing(void) { return MY_THING; }
+
+   Note that the name "MY_THING" is not exported and is not required to be
+   unique except in the .c file. The linker will guarantee that the *address* of
+   MY_THING, as returned by get_my_thing() *is* unique across the entire linked
+   executable.
+ */
 #define PN_HANDLE(name) \
-  static char *_PN_HANDLE_ ## name = 0; \
-  static pn_handle_t name = ((pn_handle_t) &_PN_HANDLE_ ## name);
+  static const char _PN_HANDLE_ ## name = 0; \
+  static const pn_handle_t name = ((pn_handle_t) &_PN_HANDLE_ ## name);
 
 PN_EXTERN pn_record_t *pn_record(void);
 PN_EXTERN void pn_record_def(pn_record_t *record, pn_handle_t key, const pn_class_t *clazz);

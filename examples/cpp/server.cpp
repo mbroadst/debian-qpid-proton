@@ -21,66 +21,80 @@
 
 #include "options.hpp"
 
-#include "proton/container.hpp"
-#include "proton/messaging_handler.hpp"
-#include "proton/url.hpp"
+#include <proton/connection.hpp>
+#include <proton/default_container.hpp>
+#include <proton/messaging_handler.hpp>
+#include <proton/tracker.hpp>
+#include <proton/url.hpp>
 
 #include <iostream>
 #include <map>
 #include <string>
 #include <cctype>
 
+#include "fake_cpp11.hpp"
+
 class server : public proton::messaging_handler {
   private:
-    typedef std::map<std::string, proton::counted_ptr<proton::sender> > sender_map;
+    typedef std::map<std::string, proton::sender> sender_map;
     proton::url url;
-    proton::counted_ptr<proton::connection> connection;
+    proton::connection connection;
     sender_map senders;
 
   public:
-
     server(const std::string &u) : url(u) {}
 
-    void on_start(proton::event &e) {
-        connection = e.container().connect(url).ptr();
-        connection->open_receiver(url.path());
+    void on_container_start(proton::container &c) OVERRIDE {
+        connection = c.connect(url);
+        connection.open_receiver(url.path());
+
         std::cout << "server connected to " << url << std::endl;
     }
 
     std::string to_upper(const std::string &s) {
         std::string uc(s);
         size_t l = uc.size();
-        for (size_t i=0; i<l; i++) uc[i] = std::toupper(uc[i]);
+        for (size_t i=0; i<l; i++)
+            uc[i] = static_cast<char>(std::toupper(uc[i]));
         return uc;
     }
 
-    void on_message(proton::event &e) {
-        std::cout << "Received " << e.message().body() << std::endl;
-        std::string reply_to = e.message().reply_to();
+    void on_message(proton::delivery &, proton::message &m) OVERRIDE {
+        std::cout << "Received " << m.body() << std::endl;
+
+        std::string reply_to = m.reply_to();
         proton::message reply;
-        reply.address(reply_to);
-        reply.body(to_upper(e.message().body().get<std::string>()));
-        reply.correlation_id(e.message().correlation_id());
-        if (!senders[reply_to])
-            senders[reply_to] = connection->open_sender(reply_to).ptr();
-        senders[reply_to]->send(reply);
+
+        reply.to(reply_to);
+        reply.body(to_upper(proton::get<std::string>(m.body())));
+        reply.correlation_id(m.correlation_id());
+
+        if (!senders[reply_to]) {
+            senders[reply_to] = connection.open_sender(reply_to);
+        }
+
+        senders[reply_to].send(reply);
     }
 };
 
 int main(int argc, char **argv) {
-    // Command line options
-    std::string address("amqp://127.0.0.1:5672/examples");
-    options opts(argc, argv);
+    std::string address("amqp://0.0.0.0:5672/examples");
+    example::options opts(argc, argv);
+
     opts.add_value(address, 'a', "address", "listen on URL", "URL");
+
     try {
         opts.parse();
+
         server srv(address);
-        proton::container(srv).run();
+        proton::default_container(srv).run();
+
         return 0;
-    } catch (const bad_option& e) {
+    } catch (const example::bad_option& e) {
         std::cout << opts << std::endl << e.what() << std::endl;
     } catch (const std::exception& e) {
         std::cerr << e.what() << std::endl;
     }
+
     return 1;
 }

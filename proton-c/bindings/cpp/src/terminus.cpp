@@ -19,50 +19,37 @@
  *
  */
 
+#include "proton/terminus.hpp"
+
+#include "proton_bits.hpp"
+
 #include "proton/link.hpp"
-#include "proton/link.h"
+#include <proton/link.h>
 
 namespace proton {
 
-terminus::type_t terminus::type() const {
-    return (type_t) pn_terminus_get_type(pn_cast(this));
+terminus::terminus(pn_terminus_t* t) :
+    object_(t), parent_(0)
+{}
+
+enum terminus::expiry_policy terminus::expiry_policy() const {
+    return (enum expiry_policy)pn_terminus_get_expiry_policy(object_);
 }
 
-void terminus::type(type_t type) {
-    pn_terminus_set_type(pn_cast(this), (pn_terminus_type_t) type);
+duration terminus::timeout() const {
+    return duration::SECOND * pn_terminus_get_timeout(object_);
 }
 
-terminus::expiry_policy_t terminus::expiry_policy() const {
-    return (expiry_policy_t) pn_terminus_get_type(pn_cast(this));
-}
-
-void terminus::expiry_policy(expiry_policy_t policy) {
-    pn_terminus_set_expiry_policy(pn_cast(this), (pn_expiry_policy_t) policy);
-}
-
-terminus::distribution_mode_t terminus::distribution_mode() const {
-    return (distribution_mode_t) pn_terminus_get_type(pn_cast(this));
-}
-
-void terminus::distribution_mode(distribution_mode_t mode) {
-    pn_terminus_set_distribution_mode(pn_cast(this), (pn_distribution_mode_t) mode);
-}
-
-std::string terminus::address() const {
-    const char *addr = pn_terminus_get_address(pn_cast(this));
-    return addr ? std::string(addr) : std::string();
-}
-
-void terminus::address(const std::string &addr) {
-    pn_terminus_set_address(pn_cast(this), addr.c_str());
+enum terminus::durability_mode terminus::durability_mode() {
+    return (enum durability_mode) pn_terminus_get_durability(object_);
 }
 
 bool terminus::dynamic() const {
-    return (type_t) pn_terminus_is_dynamic(pn_cast(this));
+    return pn_terminus_is_dynamic(object_);
 }
 
-void terminus::dynamic(bool d) {
-    pn_terminus_set_dynamic(pn_cast(this), d);
+value terminus::node_properties() const {
+    return internal::value_ref(pn_terminus_properties(object_));
 }
 
 }

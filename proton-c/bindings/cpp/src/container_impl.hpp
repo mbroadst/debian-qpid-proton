@@ -21,14 +21,23 @@
  * under the License.
  *
  */
-#include "proton/export.hpp"
-#include "proton/messaging_handler.hpp"
+
+#include "proton/io/link_namer.hpp"
+
+#include "proton/container.hpp"
 #include "proton/connection.hpp"
-#include "proton/link.hpp"
+#include "proton/connection_options.hpp"
 #include "proton/duration.hpp"
+#include "proton/sender.hpp"
+#include "proton/receiver.hpp"
 
-#include "proton/reactor.h"
+#include "messaging_adapter.hpp"
+#include "reactor.hpp"
+#include "proton_bits.hpp"
+#include "proton_handler.hpp"
 
+#include <list>
+#include <map>
 #include <string>
 
 namespace proton {
@@ -38,39 +47,77 @@ class connection;
 class connector;
 class acceptor;
 class container;
+class url;
+class task;
+class listen_handler;
 
-class container_impl
-{
+class container_impl : public standard_container {
   public:
-    PN_CPP_EXTERN container_impl(container&, handler *, const std::string& id);
-    PN_CPP_EXTERN ~container_impl();
-    PN_CPP_EXTERN connection& connect(const url&, handler *h);
-    PN_CPP_EXTERN sender& open_sender(connection &connection, const std::string &addr, handler *h);
-    PN_CPP_EXTERN sender& open_sender(const url&);
-    PN_CPP_EXTERN receiver& open_receiver(connection &connection, const std::string &addr, bool dynamic, handler *h);
-    PN_CPP_EXTERN receiver& open_receiver(const url&);
-    PN_CPP_EXTERN class acceptor& listen(const url&);
-    PN_CPP_EXTERN duration timeout();
-    PN_CPP_EXTERN void timeout(duration timeout);
+    // Pull in base class functions here so that name search finds all the overloads
+    using standard_container::stop;
+    using standard_container::connect;
+    using standard_container::listen;
+    using standard_container::open_receiver;
+    using standard_container::open_sender;
 
-    task& schedule(int delay, handler *h);
-    counted_ptr<pn_handler_t> cpp_handler(handler *h);
+    container_impl(const std::string& id, messaging_handler* = 0);
+    ~container_impl();
+    std::string id() const PN_CPP_OVERRIDE { return id_; }
+    returned<connection> connect(const std::string&, const connection_options&) PN_CPP_OVERRIDE;
+    returned<sender> open_sender(
+        const std::string&, const proton::sender_options &, const connection_options &) PN_CPP_OVERRIDE;
+    returned<receiver> open_receiver(
+        const std::string&, const proton::receiver_options &, const connection_options &) PN_CPP_OVERRIDE;
+    listener listen(const std::string&, listen_handler& lh) PN_CPP_OVERRIDE;
+    void stop_listening(const std::string&) PN_CPP_OVERRIDE;
+    void client_connection_options(const connection_options &) PN_CPP_OVERRIDE;
+    connection_options client_connection_options() const PN_CPP_OVERRIDE { return client_connection_options_; }
+    void server_connection_options(const connection_options &) PN_CPP_OVERRIDE;
+    connection_options server_connection_options() const PN_CPP_OVERRIDE { return server_connection_options_; }
+    void sender_options(const proton::sender_options&) PN_CPP_OVERRIDE;
+    class sender_options sender_options() const PN_CPP_OVERRIDE { return sender_options_; }
+    void receiver_options(const proton::receiver_options&) PN_CPP_OVERRIDE;
+    class receiver_options receiver_options() const PN_CPP_OVERRIDE { return receiver_options_; }
+    void run() PN_CPP_OVERRIDE;
+    void stop(const error_condition& err) PN_CPP_OVERRIDE;
+    void auto_stop(bool set) PN_CPP_OVERRIDE;
+#if PN_CPP_HAS_STD_FUNCTION
+    void schedule(duration, std::function<void()>) PN_CPP_OVERRIDE;
+#endif
+    void schedule(duration, void_function0&) PN_CPP_OVERRIDE;
 
-    std::string next_link_name();
+    // non-interface functions
+    void configure_server_connection(connection &c);
+    static task schedule(container& c, int delay, proton_handler *h);
+    template <class T> static void set_handler(T s, messaging_handler* h);
 
   private:
+    internal::pn_ptr<pn_handler_t> cpp_handler(proton_handler *h);
 
-    container& container_;
-    pn_unique_ptr<reactor> reactor_;
-    handler *handler_;
-    pn_unique_ptr<messaging_adapter> messaging_adapter_;
-    pn_unique_ptr<handler> override_handler_;
-    pn_unique_ptr<handler> flow_controller_;
+    typedef std::map<std::string, acceptor> acceptors;
+
+    reactor reactor_;
+    // Keep a list of all the handlers used by the container so they last as long as the container
+    std::list<internal::pn_unique_ptr<proton_handler> > handlers_;
     std::string id_;
-    uint64_t link_id_;
+    connection_options client_connection_options_;
+    connection_options server_connection_options_;
+    proton::sender_options sender_options_;
+    proton::receiver_options receiver_options_;
+    bool auto_stop_;
+    acceptors acceptors_;
 
-  friend class container;
+  friend class messaging_adapter;
 };
+
+template <class T>
+void container_impl::set_handler(T s, messaging_handler* mh) {
+    pn_record_t *record = internal::get_attachments(unwrap(s));
+    proton_handler* h = new messaging_adapter(*mh);
+    container_impl& ci = static_cast<container_impl&>(s.container());
+    ci.handlers_.push_back(h);
+    pn_record_set_handler(record, ci.cpp_handler(h).get());
+}
 
 }
 

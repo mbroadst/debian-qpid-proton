@@ -18,14 +18,36 @@
  * under the License.
  *
  */
+
+#include "proton/error.hpp"
 #include "proton/transport.hpp"
+#include "proton/error_condition.hpp"
 #include "proton/connection.hpp"
-#include "proton/transport.h"
+#include "proton/ssl.hpp"
+#include "proton/sasl.hpp"
+#include <proton/transport.h>
+#include <proton/error.h>
+
+#include "msg.hpp"
+#include "proton_bits.hpp"
+
 
 namespace proton {
 
-connection* transport::connection() const {
-    return connection::cast(pn_transport_connection(pn_cast(this)));
+connection transport::connection() const {
+    return make_wrapper(pn_transport_connection(pn_object()));
+}
+
+class ssl transport::ssl() const {
+    return make_wrapper(pn_ssl(pn_object()));
+}
+
+class sasl transport::sasl() const {
+    return make_wrapper(pn_sasl(pn_object()));
+}
+
+error_condition transport::error() const {
+    return make_wrapper(pn_transport_condition(pn_object()));
 }
 
 }

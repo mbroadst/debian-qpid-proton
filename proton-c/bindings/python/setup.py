@@ -147,18 +147,18 @@ class Configure(build_ext):
         # be used to override where this setup gets the Proton C sources from
         # (see bundle.fetch_libqpid_proton())
         if 'QPID_PROTON_SRC' not in os.environ:
-            if not os.path.exists(os.path.join(setup_path, 'tox.ini')):
+            if not os.path.exists(os.path.join(setup_path, 'CMakeLists.txt')):
                 bundledir = os.path.join(base, "bundled")
                 if not os.path.exists(bundledir):
                     os.makedirs(bundledir)
                 bundle.fetch_libqpid_proton(bundledir)
                 libqpid_proton_dir = os.path.abspath(os.path.join(bundledir, 'qpid-proton'))
             else:
-                # This should happen just in **dev** environemnts since
-                # tox.ini is not shipped with the driver. It should only
-                # be triggered when calling `setup.py`. This can happen either
-                # manually or when calling `tox` in the **sdist** step. Tox will
-                # defined the `QPID_PROTON_SRC` itself.
+                # setup.py is being invoked from within the proton source tree
+                # (CMakeLists.txt is not present in the python source dist).
+                # In this case build using the local sources.  This use case is
+                # specifically for developers working on the proton source
+                # code.
                 proton_c = os.path.join(setup_path, '..', '..', '..')
                 libqpid_proton_dir = os.path.abspath(proton_c)
         else:
@@ -177,18 +177,26 @@ class Configure(build_ext):
             os.makedirs(build_include)
             os.mkdir(os.path.join(build_include, 'proton'))
 
+        # Create copy of environment variables and modify PYTHONPATH to preserve
+        # all others environment variables defined by user. When `env` is specified
+        # Popen will not inherit environment variables of the current process.
+        proton_envs = os.environ.copy()
+        default_path = proton_envs.get('PYTHONPATH')
+        proton_envs['PYTHONPATH'] = proton_base if not default_path else '{0}{1}{2}'.format(
+            proton_base, os.pathsep, default_path)
+
         # Generate `protocol.h` by calling the python
         # script found in the source dir.
         with open(os.path.join(build_include, 'protocol.h'), 'wb') as header:
             subprocess.Popen([sys.executable, os.path.join(proton_src, 'protocol.h.py')],
-                              env={'PYTHONPATH': proton_base}, stdout=header)
+                              env=proton_envs, stdout=header)
 
         # Generate `encodings.h` by calling the python
         # script found in the source dir.
         with open(os.path.join(build_include, 'encodings.h'), 'wb') as header:
             subprocess.Popen([sys.executable,
                               os.path.join(proton_src, 'codec', 'encodings.h.py')],
-                              env={'PYTHONPATH': proton_base}, stdout=header)
+                              env=proton_envs, stdout=header)
 
         # Create a custom, temporary, version.h file mapping the
         # major and minor versions from the downloaded tarball. This version should
